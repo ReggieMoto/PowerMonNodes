@@ -16,153 +16,218 @@
 // is obtained David Hammond.
 // ==============================================================
 
-//#include "stdafx.h"
-#include <sstream>
-#include "ConsoleOut.h"
 #include "WifiSocket.h"
-#include <thread>         // std::this_thread::sleep_for
+
 #include <chrono>         // std::chrono::seconds
+#include <errno.h>
+#include <iostream>
+#include <ostream>
+#include <sstream>
+#include <thread>         // std::this_thread::sleep_for
+
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 using namespace std;
 
-string Denali("10.0.0.84");
-string Yosemite("10.0.0.8");
-string SvcPort("52955");
+namespace powermon {
 
-extern "C" {
-	DWORD WINAPI wifiSockethreadProc(_In_ LPVOID wifiSocket)
+	static bool socketIsActive;
+
+
+	WifiSocket::SockServer::SockServer(void) :
+		sockfd(-1),
+		serverIsActive(false)
 	{
-		DWORD retValue = 0;
-		((WifiSocket *)wifiSocket)->threadProc();
-		return retValue;
-	}
-}
+		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (sockfd == -1) {
+			cout << "Failed to server create socket" << endl;
+		} else {
+#if 1
+			struct sockaddr_in addr;
+			addr.sin_family = AF_INET;
+			addr.sin_port   = htons(52955u);
+			addr.sin_addr.s_addr = INADDR_ANY;
 
-WifiSocket& WifiSocket::getWifiSocket(void)
-{
-	static WifiSocket WifiSocket;
-
-	return WifiSocket;
-}
-
-
-WifiSocket::WifiSocket() :
-	socketIsActive(TRUE),
-	svcPort(SvcPort.c_str()),
-	hostName(Denali.c_str()),
-	connectSocket(INVALID_SOCKET),
-	console(ConsoleOut::getConsoleOut())
-{
-	ostringstream string1;
-
-	// Initialize Winsock
-	int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-	if (iResult != 0) {
-		string1 << "Wifi Socket WSAStartup failed: " << iResult << endl;
-		string text = string1.str();
-		console.queueOutput(text);
-		string1.str("");
-		setWifiSocketIsNotActive();
-	}
-	else
-		createSocket();
-}
-
-void WifiSocket::createSocket(void)
-{
-	ostringstream string1;
-	ADDRINFOA hints;
-
-	ZeroMemory(&hints, sizeof(hints));
-	hints.ai_family = AF_INET; //  AF_UNSPEC;
-	hints.ai_socktype = SOCK_DGRAM; //  SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_UDP; //  IPPROTO_TCP;
-
-	// Resolve the server address and port
-	int iResult = getaddrinfo(hostName, svcPort, &hints, &result);
-	if (iResult != 0) {
-		string1 << "getaddrinfo failed: " << iResult << endl;
-		string text = string1.str();
-		console.queueOutput(text);
-		string1.str("");
-		setWifiSocketIsNotActive();
-	}
-	else
-		attachSocket();
-}
-
-void WifiSocket::attachSocket(void)
-{
-	ostringstream string1;
-	ADDRINFOA *ptr = NULL;
-
-	// Attempt to connect to the first address returned by
-	// the call to getaddrinfo
-	ptr = result;
-	for (ptr = result; ptr != NULL; ptr = ptr->ai_next)
-	{
-		if ((ptr->ai_family == AF_INET) &&
-			(ptr->ai_socktype == SOCK_DGRAM) &&
-			(ptr->ai_protocol == IPPROTO_UDP))
-		{
-			sockaddr_ipv4 = ((PSOCKADDR_IN)(ptr->ai_addr))->sin_addr;
-			break;
+			int status = bind(sockfd, (struct sockaddr *)&addr, sizeof(struct sockaddr));
+			if (status == -1) {
+				cout << "Failed to bind to server socket" << endl;
+			} else {
+				serverIsActive = true;
+				cout << "WiFi server socket is active" << endl;
+			}
+#else
+			serverIsActive = true;
+			cout << "WiFi server socket is active" << endl;
+#endif
 		}
 	}
 
-	// Create a SOCKET for connecting to server
-	srvrSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-	if (srvrSocket == INVALID_SOCKET) {
-		string1 << "Error at socket(): " << WSAGetLastError() << endl;
-		setWifiSocketIsNotActive();
-	}
-	else
-		string1 << "Socket successfully created at " << 
-		(unsigned int)sockaddr_ipv4.S_un.S_un_b.s_b1 << "." << 
-		(unsigned int)sockaddr_ipv4.S_un.S_un_b.s_b2 << "." <<
-		(unsigned int)sockaddr_ipv4.S_un.S_un_b.s_b3 << "." <<
-		(unsigned int)sockaddr_ipv4.S_un.S_un_b.s_b4 << "." << endl;
-
-	string text = string1.str();
-	console.queueOutput(text);
-	string1.str("");
-
-	freeaddrinfo(result);
-}
-
-void WifiSocket::send(char *packet)
-{
-	if (wifiSocketIsActive())
+	ssize_t WifiSocket::SockServer::receive(uint8_t *data, size_t dataLen)
 	{
-		ostringstream string1;
-		string1 << "Request to send a packet" << endl;
-		string text = string1.str();
-		console.queueOutput(text);
-		string1.str("");
+		ssize_t bytesRcvd;
+
+		if (serverIsActive) {
+
+#if 0
+			AvahiIPv4Address svcAddr = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcAddr();
+#endif
+			uint16_t port = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcPort();
+
+			struct sockaddr_in src_addr;
+			socklen_t addrlen = sizeof(struct sockaddr_in);
+
+			int flags = (MSG_WAITALL);
+			bytesRcvd = recvfrom(sockfd, data, dataLen, flags,
+					(struct sockaddr *)&src_addr, &addrlen);
+
+			if (bytesRcvd == -1) {
+				int errnum = errno;
+
+				cout << "Socket receive failed: " << strerror(errnum) << endl;
+			} else {
+				cout << "Received a packet" << endl;
+				cout << "Avahi port: " << port << endl;
+				cout << "Received port" << src_addr.sin_port << endl;
+			}
+
+		} else {
+			cout << "Server socket is not active" << endl;
+			bytesRcvd = 0;
+		}
+
+		return (bytesRcvd);
 	}
-}
 
-void WifiSocket::threadProc(void)
-{
-	ostringstream string1;
-	string1 << "Entering the Wifi Socket ThreadProc" << endl;
-	string text = string1.str();
-	console.queueOutput(text);
-	string1.str("");
+	WifiSocket::SockServer& WifiSocket::SockServer::getSockServer(void)
+	{
+		static WifiSocket::SockServer sockServer;
 
-	do {
+		return (sockServer);
+	}
 
-		this_thread::sleep_for(chrono::seconds(1));
+	WifiSocket::SockClient::SockClient(void) :
+		sockfd(-1),
+		clientIsActive(false)
+	{
+		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (sockfd == -1) {
+			cout << "Failed to create client socket" << endl;
+		} else {
+#if 0
+			AvahiIPv4Address svcAddr = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcAddr();
+			uint16_t port = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcPort();
 
-	} while (socketIsActive);
+			struct sockaddr_in addr;
+			addr.sin_family = AF_INET;
+			addr.sin_port   = htons(port);
+			addr.sin_addr.s_addr = (in_addr_t)svcAddr.address;
 
-	string1 << "Leaving the Wifi Socket ThreadProc" << endl;
-	text = string1.str();
-	console.queueOutput(text);
-}
+			int status = connect(sockfd, (struct sockaddr *)&addr, sizeof(struct sockaddr));
+			if (status == -1) {
+				cout << "Failed to connect to client socket service address" << endl;
+			} else {
+				clientIsActive = true;
+				cout << "WiFi client socket is active" << endl;
+			}
+#else
+			clientIsActive = true;
+			cout << "WiFi client socket is active" << endl;
+#endif
+		}
+	}
 
-WifiSocket::~WifiSocket()
-{
-	WSACleanup();
-}
+	ssize_t WifiSocket::SockClient::transmit(uint8_t *data, size_t dataLen)
+	{
+		ssize_t bytesSent;
+
+		if (clientIsActive) {
+
+			int flags = (MSG_DONTROUTE | MSG_DONTWAIT);
+			ssize_t bytesSent = sendto(sockfd, data, dataLen, flags, NULL, 0);
+
+			if (bytesSent == -1) {
+				int errnum = errno;
+
+				cout << "Socket send failed: " << strerror(errnum) << endl;
+			}
+
+		} else {
+			cout << "Client socket is not active" << endl;
+			bytesSent = 0;
+		}
+
+		return (bytesSent);
+	}
+
+	WifiSocket::SockClient& WifiSocket::SockClient::getSockClient(void)
+	{
+		static WifiSocket::SockClient sockClient;
+
+		return (sockClient);
+	}
+
+	WifiSocket& WifiSocket::getWifiSocket(void)
+	{
+		static WifiSocket WifiSocket;
+
+		return (WifiSocket);
+	}
+
+
+	WifiSocket::WifiSocket() :
+		server(WifiSocket::SockServer::getSockServer()),
+		client(WifiSocket::SockClient::getSockClient()),
+		console(ConsoleOut::getConsoleOut())
+	{
+		wifiSocketMutex = new std::mutex;
+
+		if ((server.isSockServerActive() == true) &&
+			(client.isSockClientActive() == true)) {
+			socketIsActive = true;
+		} else {
+			socketIsActive = false;
+		}
+	}
+
+	void WifiSocket::sendPacket(char *packet)
+	{
+		if (isWifiSocketActive())
+		{
+			ostringstream string1;
+			string1 << "Request to send a packet" << endl;
+			string text = string1.str();
+			console.queueOutput(text);
+			string1.str("");
+		}
+	}
+
+	bool WifiSocket::isWifiSocketActive(void)
+	{
+		wifiSocketMutex->lock();
+		bool sockIsActive = socketIsActive;
+		wifiSocketMutex->unlock();
+		return sockIsActive;
+	}
+
+	void WifiSocket::setWifiSocketIsNotActive(void)
+	{
+		wifiSocketMutex->lock();
+		socketIsActive = false;
+		wifiSocketMutex->unlock();
+	}
+
+	void WifiSocket::setWifiSocketIsActive(void)
+	{
+		wifiSocketMutex->lock();
+		socketIsActive = true;
+		wifiSocketMutex->unlock();
+	}
+
+	WifiSocket::~WifiSocket()
+	{
+		free(wifiSocketMutex);
+	}
+
+} // namespace powermon

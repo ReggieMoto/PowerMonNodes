@@ -17,65 +17,68 @@
 // ==============================================================
 #pragma once
 
+#include <cstdint>
+#include <mutex>
+#include <ostream>
 #include <string>
-#include <iostream>
-#include "Processthreadsapi.h"
-#include "ConsoleOut.h"
-#include "WifiQueue.h"
 
+namespace powermon {
 
-using namespace std;
+	class PowerMonNode
+	{
+		public:
 
-class PowerMonNode
-{
-public:
+			enum Mode_e {
+				Off,
+				Auto
+			};
 
-	enum Mode_e {
-		Off,
-		Auto
+			enum Operation_e {
+				Normal,
+				Defrost
+			};
+
+			static uint32_t const NodeIdLength = 32;
+			static uint32_t const nodeVersion = 1;
+
+		private:
+
+			typedef struct _packet {
+				uint32_t version;
+				char nodeId[NodeIdLength];
+				Mode_e mode;	// Auto = 1(default)/Off = 0
+				Operation_e operation;	// Normal = 1 (default)/Defrost = 0
+				uint32_t temp;
+				uint32_t amps;
+			} Packet;
+
+			std::string nodeIdentifier;
+			Packet packet;
+
+		public:
+			PowerMonNode(uint32_t nodeId);
+			PowerMonNode(PowerMonNode &node);
+
+			~PowerMonNode();
+
+			static std::mutex& getPowerMonNodesMutex(void);
+
+			std::string nodeId(void) { return (nodeIdentifier); }
+			friend void powerMonNodeThreadProc(PowerMonNode& node);
+
+			inline void resumeNodeThread(void) { }
+
+			inline Mode_e getMode(void) { return (packet.mode); }
+			inline Operation_e getOperation(void) { return (packet.operation); }
+			inline uint32_t getTemp(void) { return (packet.temp); }
+			inline uint32_t getAmps(void) { return (packet.amps); }
+
+			friend std::ostream& operator<<(std::ostream& os, const PowerMonNode& node);
 	};
 
-	enum Operation_e {
-		Normal,
-		Defrost
-	};
+	void powerMonNodeThreadProc(PowerMonNode& node);
+	void releaseNodeThreads(void);
+	bool nodeThreadsAreActive(void);
 
-	static unsigned int const NodeIdLength = 18;
-	static unsigned int const nodeVersion = 1;
 
-private:
-	HANDLE nodeThread;
-	bool threadIsActive;
-	ConsoleOut& console;
-	WifiQueue& wifiQueue;
-
-	typedef struct _packet {
-		unsigned int version;
-		char nodeId[NodeIdLength];
-		Mode_e mode;	// Auto = 1(default)/Off = 0
-		Operation_e operation;	// Normal = 1 (default)/Defrost = 0
-		unsigned int temp;
-		unsigned int amps;
-	} Packet;
-
-	string nodeIdentifier;
-	Packet packet;
-
-public:
-	PowerMonNode(unsigned int nodeId);
-	~PowerMonNode();
-
-	string nodeId(void) { return nodeIdentifier; }
-	void threadProc(void);
-
-	inline void resumeNodeThread(void) { if (nodeThread) ResumeThread(nodeThread); }
-	inline void exitNodeThread(void) { threadIsActive = FALSE; }
-
-	inline Mode_e getMode(void) { return packet.mode; }
-	inline Operation_e getOperation(void) { return packet.operation; }
-	inline unsigned int getTemp(void) { return packet.temp; }
-	inline unsigned int getAmps(void) { return packet.amps; }
-
-	friend ostream& operator<<(ostream& os, const PowerMonNode& node);
-};
-
+} // namespace powermon

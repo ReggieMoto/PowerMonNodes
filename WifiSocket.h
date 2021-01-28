@@ -17,47 +17,79 @@
 // ==============================================================
 #pragma once
 
-//#ifndef WIN32_LEAN_AND_MEAN
-//#define WIN32_LEAN_AND_MEAN
-//#endif
+#include <mutex>
+#include <netinet/in.h>
 
-#include <winsock2.h>
-//#include <windows.h>
-#include <iphlpapi.h>
-#include <ws2tcpip.h>
+#include "ConsoleOut.h"
+#include "PwrmonSvcClient.h"
 
-class WifiSocket
-{
-	WifiSocket();
+namespace powermon {
 
-	WSADATA wsaData;
-	SOCKET srvrSocket;
-	const char *svcPort; // UDP
-	const char *hostName;
-	ADDRINFOA *result = NULL;
-	IN_ADDR  sockaddr_ipv4;
+	class WifiSocket
+	{
+		// =============================
+		class SockClient	// Talker
+		// =============================
+		{
+			int sockfd;
+			bool clientIsActive;
 
-	HANDLE wifiSocketThread;
-	bool socketIsActive;
-	ConsoleOut& console;
+			SockClient(void);
 
-	HANDLE ghMutex;
+		public:
 
-	void createSocket(void);
-	void attachSocket(void);
+			static SockClient& getSockClient(void);
+			bool isSockClientActive(void) { return clientIsActive; }
+			/*
+			 * uint8_t *data - buffer of data to send
+			 * uint16_t dataLen - number of bytes to send
+			 * returns number of bytes sent
+			 * A return of -1 means the transmit failed
+			 */
+			ssize_t transmit(uint8_t *data, size_t dataLen);
+		};
 
-public:
+		// =============================
+		class SockServer	// Listener
+		// =============================
+		{
+			int sockfd;
+			bool serverIsActive;
 
-	static WifiSocket& getWifiSocket(void);
-	~WifiSocket();
+			SockServer(void);
 
-	void send(char *packet);
+		public:
 
-	void threadProc(void);
-	inline bool wifiSocketIsActive(void) { return (socketIsActive == TRUE); }
-	inline bool wifiSocketIsNotActive(void) { return (socketIsActive == FALSE); }
-	inline void setWifiSocketIsNotActive(void) { socketIsActive = FALSE; }
-	inline void setWifiSocketIsActive(void) { socketIsActive = TRUE; }
+			static SockServer& getSockServer(void);
+			bool isSockServerActive(void) { return serverIsActive; }
+			/*
+			 * uint8_t *data - buffer to place data into
+			 * uint16_t dataLen - size of buffer
+			 * returns number of bytes received
+			 * A return of -1 means the receive failed
+			 */
+			ssize_t receive(uint8_t *data, size_t dataLen);
+		};
+
+			WifiSocket();
+
+			SockServer& server;
+			SockClient& client;
+			ConsoleOut& console;
+			std::mutex *wifiSocketMutex;
+
+		public:
+
+			static WifiSocket& getWifiSocket(void);
+
+			~WifiSocket();
+
+			void sendPacket(char *packet);
+
+			bool isWifiSocketActive(void);
+			void setWifiSocketIsNotActive(void);
+			void setWifiSocketIsActive(void);
 
 };
 
+}

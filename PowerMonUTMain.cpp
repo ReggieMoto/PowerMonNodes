@@ -2,7 +2,7 @@
 //
 // class PwrMonUTMain
 //
-// Copyright (c) 2017 David Hammond 
+// Copyright (c) 2017, 2021 David Hammond
 // All Rights Reserved.
 // 
 // ==============================================================
@@ -16,26 +16,15 @@
 // is obtained David Hammond.
 // ==============================================================
 
-//#include "stdafx.h"
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <stdexcept>      // std::invalid_argument
-#include "PwrMonUnitTest.h"
-#include <thread>         // std::this_thread::sleep_for
-#include <chrono>         // std::chrono::seconds
 #include "ConsoleOut.h"
+#include "PwrmonSvcClient.h"
+#include "PwrMonUnitTest.h"
+#include "WifiQueue.h"
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include "windows.h"
-#include "windef.h"
-
-#pragma comment(lib, "Ws2_32.lib")
+#include <iostream>
 
 using namespace std;
-using namespace pwrmon;
+using namespace powermon;
 
 #define MAX_TEST_NODES 10
 string inputErrStr = "Provide a single node count value greater than 0 and less than or equal to 10.";
@@ -50,7 +39,7 @@ int main(int argc, char *argv[])
 	else
 		cout << inputErrStr << endl;
 
-    return 0;
+    return (0);
 }
 
 void parseArgs(char *argString)
@@ -61,13 +50,18 @@ void parseArgs(char *argString)
 
 		if (nodeCount > 0 && nodeCount <= MAX_TEST_NODES)
 		{
-			// Args check out. Create the console.
-			ConsoleOut& console = ConsoleOut::getConsoleOut();
+			// Node count checks out. Create the console thread.
+			thread consoleThread(consoleOutThreadProc);		// Console thread proc
+
+			// Create the Avahi client thread
+			thread avahiClientThread(pwrmonSvcClientThreadProc);	// Avahi client thread proc
+
 			// Create the WiFi queue
-			WifiQueue& wifiQueue = WifiQueue::getWifiQueue();
+			thread wifiQueueThread(wifiQueueThreadProc);	// WiFi queue thread proc
 
 			// Create the requested number of test nodes.
-			static PwrMonUnitTest unitTest = PwrMonUnitTest::getPwrMonUnitTest((unsigned int)nodeCount);
+			PwrMonUnitTest& unitTest = PwrMonUnitTest::getPwrMonUnitTest(nodeCount);
+
 			unitTest.reportNodes();
 			unitTest.startThreads();
 
@@ -82,7 +76,17 @@ void parseArgs(char *argString)
 			cout << "Shutting down threads." << endl;
 
 			unitTest.stopThreads();
-			wifiQueue.releaseWifiQueue();
+
+			WifiQueue& wifiQueue = WifiQueue::getWifiQueue();
+			wifiQueue.releaseWifiThread();
+			//while(wifiQueue.isWifiQueueActive()) {};
+			wifiQueueThread.join();
+
+			PwrmonSvcClient::getPwrmonSvcClient().releasePwrmonSvcClient();
+			avahiClientThread.join();
+
+			ConsoleOut::getConsoleOut().releaseConsoleOut();
+			consoleThread.join();
 
 			for (int i = 6; i > 0; --i)
 			{

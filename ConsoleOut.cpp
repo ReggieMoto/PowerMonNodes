@@ -16,105 +16,109 @@
 // is obtained David Hammond.
 // ==============================================================
 
-//#include "stdafx.h"
 #include "ConsoleOut.h"
-#include <iostream>
-#include <string>
-#include <thread>         // std::this_thread::sleep_for
+
 #include <chrono>         // std::chrono::seconds
+#include <cstring>
+#include <iostream>
+#include <thread>         // std::this_thread::sleep_for
 
 using namespace std;
 
-extern "C" {
-	DWORD WINAPI ConsoleThreadProc(_In_ LPVOID console)
+namespace powermon {
+
+	bool consoleOutThreadIsActive;
+
+	void consoleOutThreadProc(void)
 	{
-		DWORD retValue = 0;
-		((ConsoleOut *)console)->consoleThreadProc();
-		return retValue;
+		// Initialize the singleton
+		ConsoleOut &console = ConsoleOut::getConsoleOut();
+
+		console.consoleOutMutex->lock();
+		consoleOutThreadIsActive = true;
+		console.consoleOutMutex->unlock();
+
+		do {
+			while (!console.isConsoleQueueEmpty()) {
+				console.printToConsole();
+			}
+
+			this_thread::sleep_for(chrono::seconds(1));
+
+		} while (console.consoleIsActive());
+
+		cout << "Leaving the Console Out ThreadProc" << endl;
 	}
-}
 
-ConsoleOut& ConsoleOut::getConsoleOut(void)
-{
-	static ConsoleOut consoleOut;
+	ConsoleOut& ConsoleOut::getConsoleOut(void)
+	{
+		static ConsoleOut consoleOut;
 
-	return consoleOut;
-}
+		return (consoleOut);
+	}
 
-ConsoleOut::ConsoleOut() :
-	threadActive(TRUE)
-{
-	// Create a mutex with no initial owner
-	ghMutex = CreateMutex(
-		NULL,              // default security attributes
-		FALSE,             // initially not owned
-		NULL);
+	ConsoleOut::ConsoleOut()
+	{
+		consoleOutThreadIsActive = false;
+		consoleOutMutex = new std::mutex;
+	}
 
-	SECURITY_ATTRIBUTES securityAttrs;
+	void ConsoleOut::queueOutput(const string& lineOfText)
+	{
+		char *text = new char[lineOfText.length() + 1];
+		strncpy(text, lineOfText.c_str(), lineOfText.length() + 1);
 
-	securityAttrs.nLength = sizeof(SECURITY_ATTRIBUTES);
-	securityAttrs.lpSecurityDescriptor = NULL;
-	securityAttrs.bInheritHandle = FALSE;
+		consoleOutMutex->lock();
+		screenLine.push(text);
+		consoleOutMutex->unlock();
+	}
 
-	// Create this node's thread
-	consoleThread = CreateThread(
-		&securityAttrs,
-		0, // default dwStackSize
-		ConsoleThreadProc, // lpStartAddress,
-		(void *)this, //lpParameter,
-		0x00000000, // CREATE_SUSPENDED, dwCreationFlags,
-		NULL //lpThreadId
-	);
+	bool ConsoleOut::consoleIsActive(void)
+	{
+		consoleOutMutex->lock();
+		bool threadIsActive = consoleOutThreadIsActive;
+		consoleOutMutex->unlock();
+		return (threadIsActive);
+	}
 
-	if (consoleThread == NULL)
-		cout << "Failed to create console output thread." << endl;
-}
+	void ConsoleOut::releaseConsoleOut(void)
+	{
+		consoleOutMutex->lock();
+		consoleOutThreadIsActive = false;
+		consoleOutMutex->unlock();
+	}
 
-void ConsoleOut::queueOutput(string& lineOfText)
-{
-	DWORD semWaitResult;
-	char *text = new char[lineOfText.length() + 1];
-	strcpy_s(text, lineOfText.length() + 1, lineOfText.c_str());
-	
-	semWaitResult = WaitForSingleObject(ghMutex, INFINITE);
-	screenLine.push(text);
-	ReleaseMutex(ghMutex);
-}
+	bool ConsoleOut::isConsoleQueueEmpty(void)
+	{
+		consoleOutMutex->lock();
+		bool consoleIsEmpty = screenLine.empty();
+		consoleOutMutex->unlock();
+		return consoleIsEmpty;
+	}
 
-void ConsoleOut::consoleThreadProc(void)
-{
-	DWORD semWaitResult;
+	void ConsoleOut::printToConsole(void)
+	{
+		consoleOutMutex->lock();
+		char *lineOfText = screenLine.front();
+		screenLine.pop();
+		consoleOutMutex->unlock();
 
-	do {
+		cout << lineOfText;
+		free(lineOfText);
+	}
 
+	ConsoleOut::~ConsoleOut()
+	{
 		while (!screenLine.empty())
 		{
-			semWaitResult = WaitForSingleObject(ghMutex, INFINITE);
 			char *lineOfText = screenLine.front();
 			screenLine.pop();
-			ReleaseMutex(ghMutex);
 
-			cout << lineOfText;
+			cout << lineOfText << endl;
 			free(lineOfText);
 		}
 
-		this_thread::sleep_for(chrono::seconds(1));
-
-	} while (threadActive);
-}
-
-ConsoleOut::~ConsoleOut()
-{
-	DWORD semWaitResult;
-
-	while (!screenLine.empty())
-	{
-		semWaitResult = WaitForSingleObject(ghMutex, INFINITE);
-		char *lineOfText = screenLine.front();
-		screenLine.pop();
-		ReleaseMutex(ghMutex);
-
-		cout << lineOfText << endl;
-		free(lineOfText);
+		free(consoleOutMutex);
 	}
-}
+
+} // namespace powermon

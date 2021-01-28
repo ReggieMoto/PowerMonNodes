@@ -17,32 +17,33 @@
 // ==============================================================
 #pragma once
 
-#include <string>
+#include <mutex>
 #include <queue>
+#include <string>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
+namespace powermon {
 
-using namespace std;
+	void consoleOutThreadProc(void);
 
-class ConsoleOut
-{
-	queue<  char *> screenLine;
-	HANDLE ghMutex;
-	HANDLE consoleThread;
-	bool threadActive;
+	class ConsoleOut
+	{
+			std::queue<char *> screenLine;
+			std::mutex *consoleOutMutex;
 
-	ConsoleOut();
+			ConsoleOut();
 
-public:
+		public:
 
-	static ConsoleOut& getConsoleOut(void);
-	void queueOutput(string& lineOfText);
-	void consoleThreadProc(void);
-	inline bool consoleIsActive(void) { return threadActive; }
+			static ConsoleOut& getConsoleOut(void);
+			friend void consoleOutThreadProc(void);
 
-	~ConsoleOut();
-};
+			void printToConsole(void);
+			bool isConsoleQueueEmpty(void);
+			void queueOutput(const std::string& lineOfText);
+			bool consoleIsActive(void);
+			void releaseConsoleOut(void);
 
+			~ConsoleOut();
+	};
+
+} // namespace powermon

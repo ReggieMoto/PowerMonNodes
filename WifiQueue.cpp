@@ -2,7 +2,7 @@
 //
 // class WifiQueue
 //
-// Copyright (c) 2017 David Hammond 
+// Copyright (c) 2017, 2021 David Hammond
 // All Rights Reserved.
 // 
 // ==============================================================
@@ -16,140 +16,131 @@
 // is obtained David Hammond.
 // ==============================================================
 
-//#include "stdafx.h"
 #include "WifiQueue.h"
+
+#include <chrono>         // std::chrono::seconds
+#include <cstring>
 #include <iostream>
+#include <ostream>
 #include <sstream>
 #include <thread>         // std::this_thread::sleep_for
-#include <chrono>         // std::chrono::seconds
 
 using namespace std;
 
-extern "C" {
-	DWORD WINAPI WifiQueueThreadProc(_In_ LPVOID wifiQueue)
+namespace powermon {
+
+	bool wifiQueueThreadIsActive;
+
+
+	void wifiQueueThreadProc(void)
 	{
-		DWORD retValue = 0;
-		((WifiQueue *)wifiQueue)->threadProc();
-		return retValue;
-	}
-}
+		// Initialize the WiFi queue
+		WifiQueue wifiQueue = WifiQueue::getWifiQueue();
 
-WifiQueue& WifiQueue::getWifiQueue(void)
-{
-	static WifiQueue WifiQueue;
+		// Indicate the thread is active
+		wifiQueue.wifiQueueMutex->lock();
+		wifiQueueThreadIsActive = true;
+		wifiQueue.wifiQueueMutex->unlock();
 
-	return WifiQueue;
-}
+		do {
+			ostringstream string1;
+			bool consoleNotification = true;
 
-WifiQueue::WifiQueue() :
-	threadIsActive(TRUE),
-	console(ConsoleOut::getConsoleOut()),
-	socket(WifiSocket::getWifiSocket())
-{
-	// Create a mutex with no initial owner
-	ghMutex = CreateMutex(
-		NULL,              // default security attributes
-		FALSE,             // initially not owned
-		NULL);
+			cout << "Is packet queue empty: " << wifiQueue.isPacketQueueEmpty() << endl;
 
-	SECURITY_ATTRIBUTES securityAttrs;
-
-	securityAttrs.nLength = sizeof(SECURITY_ATTRIBUTES);
-	securityAttrs.lpSecurityDescriptor = NULL;
-	securityAttrs.bInheritHandle = FALSE;
-
-	// Create this node's thread
-	wifiQueueThread = CreateThread(
-		&securityAttrs,
-		0, // default dwStackSize
-		WifiQueueThreadProc, // lpStartAddress,
-		(void *)this, //lpParameter,
-		0x00000000, // CREATE_SUSPENDED, dwCreationFlags,
-		NULL //lpThreadId
-	);
-
-	if (wifiQueueThread == NULL)
-	{
-		ostringstream string1;
-		string1 << "Failed to create WiFi Thread Queue." << endl;
-		string text = string1.str();
-		console.queueOutput(text);
-	}
-}
-
-void WifiQueue::queueOutput(string& packet)
-{
-	DWORD semWaitResult;
-	char *pkt = new char[packet.length() + 1];
-	strcpy_s(pkt, packet.length() + 1, packet.c_str());
-
-	semWaitResult = WaitForSingleObject(ghMutex, INFINITE);
-	packetQueue.push(pkt);
-	ReleaseMutex(ghMutex);
-}
-
-void WifiQueue::threadProc(void)
-{
-	DWORD semWaitResult;
-
-	ostringstream string1;
-	string1 << "Entering the Wifi Queue ThreadProc" << endl;
-	string text = string1.str();
-	console.queueOutput(text);
-	string1.str("");
-
-	do {
-		bool consoleNotification = TRUE;
-
-		while (!packetQueue.empty())
-		{
-			semWaitResult = WaitForSingleObject(ghMutex, INFINITE);
-			char *packet = packetQueue.front();
-			socket.send(packet);
-			packetQueue.pop();
-			ReleaseMutex(ghMutex);
-
-			if (socket.wifiSocketIsActive())
+			while (wifiQueue.isPacketQueueEmpty() == false)
 			{
-				if (consoleNotification)
+				cout << "WiFi queue is not empty" << endl;
+
+
+				wifiQueue.wifiQueueMutex->lock();
+				char *packet = wifiQueue.packetQueue.front();
+				cout << "Send to socket" << endl;
+				wifiQueue.socket.sendPacket(packet);
+				wifiQueue.packetQueue.pop();
+				wifiQueue.wifiQueueMutex->unlock();
+
+				if (wifiQueue.socket.isWifiSocketActive())
 				{
-					consoleNotification = FALSE;
-					ostringstream string1;
-					string1 << "Sending powermon data packet(s)." << endl;
-					string text = string1.str();
-					console.queueOutput(text);
-					string1.str("");
+					if (consoleNotification)
+					{
+						consoleNotification = false;
+						ostringstream ostr;
+						ostr << "Sending PowerMon data packet(s)." << endl;
+						string textStr = ostr.str();
+						wifiQueue.console.queueOutput(textStr);
+						string1.str("");
+					}
 				}
 
-				// Send the packet here
-				socket.send(packet);
+				free(packet);
 			}
+
+			this_thread::sleep_for(chrono::seconds(1));
+
+		} while (wifiQueue.isWifiQueueActive() == true);
+
+		cout << "Leaving the WiFi Queue ThreadProc" << endl;
+	}
+
+	WifiQueue& WifiQueue::getWifiQueue(void)
+	{
+		static WifiQueue wifiQueue;
+
+		return (wifiQueue);
+	}
+
+	WifiQueue::WifiQueue() :
+		console(ConsoleOut::getConsoleOut()),
+		socket(WifiSocket::getWifiSocket())
+	{
+		wifiQueueThreadIsActive = false;
+		wifiQueueMutex = new std::mutex;
+	}
+
+	void WifiQueue::queueOutput(const string& packet)
+	{
+		char *pkt = new char[packet.length() + 1];
+		strncpy(pkt, packet.c_str(), packet.length() + 1);
+
+		wifiQueueMutex->lock();
+		cout << "packetQueue.push" << endl;
+		packetQueue.push(pkt);
+		wifiQueueMutex->unlock();
+	}
+
+	bool WifiQueue::isPacketQueueEmpty(void)
+	{
+		wifiQueueMutex->lock();
+		bool isEmpty = packetQueue.empty();
+		wifiQueueMutex->unlock();
+		return (isEmpty);
+	}
+	bool WifiQueue::isWifiQueueActive(void)
+	{
+		wifiQueueMutex->lock();
+		bool isActive = wifiQueueThreadIsActive;
+		wifiQueueMutex->unlock();
+		return (isActive);
+	}
+
+	void WifiQueue::releaseWifiThread(void)
+	{
+		wifiQueueMutex->lock();
+		wifiQueueThreadIsActive = false;
+		wifiQueueMutex->unlock();
+	}
+
+	WifiQueue::~WifiQueue()
+	{
+		while (!packetQueue.empty())
+		{
+			char *packet = packetQueue.front();
+			packetQueue.pop();
 
 			free(packet);
 		}
 
-		consoleNotification = TRUE; // Reset for next
-
-		this_thread::sleep_for(chrono::seconds(1));
-
-	} while (threadIsActive);
-
-	string1 << "Leaving the Wifi Queue ThreadProc" <<  endl;
-	text = string1.str();
-	console.queueOutput(text);
-}
-
-WifiQueue::~WifiQueue()
-{
-	DWORD semWaitResult;
-
-	while (!packetQueue.empty())
-	{
-		semWaitResult = WaitForSingleObject(ghMutex, INFINITE);
-		char *packet = packetQueue.front();
-		packetQueue.pop();
-		ReleaseMutex(ghMutex);
-
-		free(packet);
+		free(wifiQueueMutex);
 	}
-}
+} // namespace powermon

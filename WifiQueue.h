@@ -2,7 +2,7 @@
 //
 // class WifiQueue
 //
-// Copyright (c) 2017 David Hammond 
+// Copyright (c) 2017, 2021 David Hammond
 // All Rights Reserved.
 // 
 // ==============================================================
@@ -17,37 +17,38 @@
 // ==============================================================
 #pragma once
 
-#include <string>
-#include <queue>
 #include "ConsoleOut.h"
 #include "WifiSocket.h"
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
+#include <mutex>
+#include <queue>
+#include <string>
 
-using namespace std;
+namespace powermon {
 
-class WifiQueue
-{
-	HANDLE wifiQueueThread;
-	bool threadIsActive;
-	ConsoleOut& console;
-	WifiSocket& socket;
+	void wifiQueueThreadProc(void);
 
-	queue<  char *> packetQueue;
-	HANDLE ghMutex;
+	class WifiQueue
+	{
+			ConsoleOut& console;
+			WifiSocket& socket;
 
-	WifiQueue();
+			std::queue<  char *> packetQueue;
+			std::mutex *wifiQueueMutex;
 
-public:
+			WifiQueue();
 
-	static WifiQueue& getWifiQueue(void);
-	void queueOutput(string& packetData);
-	void threadProc(void);
-	inline bool wifiQueueIsActive(void) { return threadIsActive; }
-	inline void releaseWifiQueue(void) { threadIsActive = FALSE; }
+		public:
 
-	~WifiQueue();
-};
+			static WifiQueue& getWifiQueue(void);
+			friend void wifiQueueThreadProc(void);
+
+			void queueOutput(const std::string& packetData);
+			bool isPacketQueueEmpty(void);
+			bool isWifiQueueActive(void);
+			void releaseWifiThread(void);
+
+			~WifiQueue();
+	};
+
+} // namespace powermon

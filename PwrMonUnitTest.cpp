@@ -16,36 +16,31 @@
 // is obtained David Hammond.
 // ==============================================================
 
-//#include "stdafx.h"
-#include <iostream>
-#include <sstream>
-#include <string>
 #include "PwrMonUnitTest.h"
-#include <Iphlpapi.h>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <Windows.h>
-#include <memory.h>
+#include <iostream>
 
 using namespace std;
 
-namespace pwrmon
+namespace powermon
 {
 
-	PwrMonUnitTest& PwrMonUnitTest::getPwrMonUnitTest(unsigned int nodeCount)
+	PwrMonUnitTest& PwrMonUnitTest::getPwrMonUnitTest(uint32_t nodeCount)
 	{
-		static PwrMonUnitTest unitTest = PwrMonUnitTest(nodeCount);
+		static PwrMonUnitTest unitTest(nodeCount);
 
-		return unitTest;
+		return (unitTest);
 	}
 
-	PwrMonUnitTest::PwrMonUnitTest(unsigned int nodeCount) :
+	PwrMonUnitTest::PwrMonUnitTest(uint32_t nodeCount) :
 		console(ConsoleOut::getConsoleOut())
 	{
-		for (unsigned int i = 0; i < nodeCount; i++)
-			pwrMonNodes.insert(pwrMonNodes.end(), new PowerMonNode(i+1));
+		for (uint32_t i = 0; i < nodeCount; i++) {
+			PowerMonNode *node = new PowerMonNode(i+1u);
+			pwrMonNodes.insert(pwrMonNodes.end(), node);
+			thread pwrMonNodeThread(powerMonNodeThreadProc, std::ref(*node));
+			pwrMonNodeThreads.push_back(std::move(pwrMonNodeThread));
+		}
 	}
 
 	void PwrMonUnitTest::reportNodes(void)
@@ -66,21 +61,28 @@ namespace pwrmon
 
 	void PwrMonUnitTest::stopThreads(void)
 	{
-		vector<PowerMonNode *>::iterator pwrMonNode;
+		releaseNodeThreads();
 
-		for (pwrMonNode = pwrMonNodes.begin(); pwrMonNode < pwrMonNodes.end(); pwrMonNode++)
-			(*pwrMonNode)->exitNodeThread();
+		vector<std::thread>::iterator pwrMonNodeThread;
+
+		for (pwrMonNodeThread = pwrMonNodeThreads.begin(); pwrMonNodeThread < pwrMonNodeThreads.end(); pwrMonNodeThread++) {
+			pwrMonNodeThread->join();
+		}
 	}
 
 	PwrMonUnitTest::~PwrMonUnitTest()
 	{
+		vector<PowerMonNode *>::iterator pwrMonNode;
+
+		for (pwrMonNode = pwrMonNodes.begin(); pwrMonNode < pwrMonNodes.end(); pwrMonNode++)
+			free(*pwrMonNode);
 	}
 
 	int PwrMonUnitTest::getNetworkAdaptorInfo(void)
 	{
 		int retVal = 0;
 
-		return retVal;
+		return (retVal);
 	}
 
-}
+} // namespace powermon

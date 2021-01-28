@@ -17,24 +17,37 @@
 // ==============================================================
 #pragma once
 
+#include <cstdint>
+#include <thread>
 #include <vector>
-#include "PowerMonNode.h"
-#include "ConsoleOut.h"
 
-namespace pwrmon
+#include "ConsoleOut.h"
+#include "PowerMonNode.h"
+
+namespace powermon
 {
 
 	class PwrMonUnitTest
 	{
-		PwrMonUnitTest(unsigned int nodeCount);
+		PwrMonUnitTest(uint32_t nodeCount);
 		int getNetworkAdaptorInfo(void);
 
-		vector<PowerMonNode *> pwrMonNodes;
+		std::vector<std::thread> pwrMonNodeThreads;
+		std::vector<PowerMonNode *> pwrMonNodes;
 		ConsoleOut& console;
 
 	public:
-		static PwrMonUnitTest& getPwrMonUnitTest(unsigned int nodeCount);
+		static PwrMonUnitTest& getPwrMonUnitTest(uint32_t nodeCount);
 		~PwrMonUnitTest();
+
+		// This component would not build. It would received the error
+		// "result type must be constructible from value type of input range"
+		// From stackoverflow: "This appears to be an instance of the old
+		// 'move if noexcept' issue with std::vector"
+		// In order to force std::vector<pwrMonNodeThread>::push_back to
+		// use the move ctor, the copy ctor of pwrMonNodeThread has to be
+		// marked as deleted
+		PwrMonUnitTest(PwrMonUnitTest&&) noexcept(false) = default;
 
 		void reportNodes(void);
 		void startThreads(void);
