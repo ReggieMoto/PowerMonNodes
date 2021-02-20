@@ -17,33 +17,32 @@
 // ==============================================================
 #pragma once
 
+#include <ThreadMsg.h>
+
+#include <condition_variable>
 #include <mutex>
 #include <queue>
 #include <string>
+#include <thread>
 
 namespace powermon {
 
-	void consoleOutThreadProc(void);
-
 	class ConsoleOut
 	{
-			std::queue<char *> screenLine;
-			std::mutex *consoleOutMutex;
+		std::unique_ptr<std::thread> _consoleOutThread;
+		std::queue<std::shared_ptr<ThreadMsg>> _screenLine;
+		std::mutex _consoleOutMutex;
+		std::condition_variable _consoleOutCondVar;
 
-			ConsoleOut();
+		void _threadProcess(void);
 
-		public:
+	public:
 
-			static ConsoleOut& getConsoleOut(void);
-			friend void consoleOutThreadProc(void);
+		ConsoleOut(void);
+		~ConsoleOut(void);
 
-			void printToConsole(void);
-			bool isConsoleQueueEmpty(void);
-			void queueOutput(const std::string& lineOfText);
-			bool consoleIsActive(void);
-			void releaseConsoleOut(void);
-
-			~ConsoleOut();
+		void exitConsoleOut(void);
+		void queueOutput(const std::shared_ptr<ThreadMsg> message);
 	};
 
 } // namespace powermon

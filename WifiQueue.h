@@ -20,35 +20,39 @@
 #include "ConsoleOut.h"
 #include "WifiSocket.h"
 
+#include <ThreadMsg.h>
+
 #include <mutex>
 #include <queue>
 #include <string>
 
 namespace powermon {
 
-	void wifiQueueThreadProc(void);
-
 	class WifiQueue
 	{
-			ConsoleOut& console;
-			WifiSocket& socket;
 
-			std::queue<  char *> packetQueue;
-			std::mutex *wifiQueueMutex;
+		ConsoleOut& _console;
 
-			WifiQueue();
+		std::unique_ptr<WifiSocket> _socket;
 
-		public:
+		std::thread _wifiQueueThread;
+		std::queue<std::shared_ptr<ThreadMsg>> _wifiPacketQueue;
+		std::mutex _wifiQueueMutex;
+		std::condition_variable _wifiQueueCondVar;
 
-			static WifiQueue& getWifiQueue(void);
-			friend void wifiQueueThreadProc(void);
+		WifiQueue(const WifiQueue&) = delete;
+		WifiQueue& operator=(const WifiQueue&) = delete;
 
-			void queueOutput(const std::string& packetData);
-			bool isPacketQueueEmpty(void);
-			bool isWifiQueueActive(void);
-			void releaseWifiThread(void);
+		// Entry point for the PowerMon WiFi queue thread
+		void _threadProcess(void);
 
-			~WifiQueue();
+	public:
+
+		WifiQueue(ConsoleOut& console);
+		~WifiQueue(void);
+
+		void exitWifiQueue(void);
+		void queueOutput(const std::shared_ptr<ThreadMsg> message);
 	};
 
 } // namespace powermon

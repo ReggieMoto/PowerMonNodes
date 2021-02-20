@@ -22,7 +22,11 @@
 #include <ostream>
 #include <string>
 
-namespace powermon {
+#include "WifiQueue.h"
+#include "ConsoleOut.h"
+
+namespace powermon
+{
 
 	class PowerMonNode
 	{
@@ -52,33 +56,35 @@ namespace powermon {
 				uint32_t amps;
 			} Packet;
 
-			std::string nodeIdentifier;
-			Packet packet;
+			Packet _packet;
+			std::string _nodeIdentifier;
+			ConsoleOut& _console;
+			WifiQueue& _wifiQueue;
+
+			std::thread _powerMonNodeTimerThread;
+			std::thread _powerMonNodeThread;
+			std::queue<std::shared_ptr<ThreadMsg>> _nodeData;
+			std::mutex _powerMonNodeMutex;
+			std::condition_variable _powerMonNodeCondVar;
+
+			bool _timerActive;
+			void _timerProcess(void);
+			void _threadProcess(void);
 
 		public:
-			PowerMonNode(uint32_t nodeId);
-			PowerMonNode(PowerMonNode &node);
 
-			~PowerMonNode();
+			PowerMonNode(uint32_t nodeId, ConsoleOut& console, WifiQueue& wifiQueue);
+			~PowerMonNode(void);
 
-			static std::mutex& getPowerMonNodesMutex(void);
+			std::string nodeId(void) { return (_nodeIdentifier); }
+			inline Mode_e getMode(void) { return (_packet.mode); }
+			inline Operation_e getOperation(void) { return (_packet.operation); }
+			inline uint32_t getTemp(void) { return (_packet.temp); }
+			inline uint32_t getAmps(void) { return (_packet.amps); }
 
-			std::string nodeId(void) { return (nodeIdentifier); }
-			friend void powerMonNodeThreadProc(PowerMonNode& node);
-
-			inline void resumeNodeThread(void) { }
-
-			inline Mode_e getMode(void) { return (packet.mode); }
-			inline Operation_e getOperation(void) { return (packet.operation); }
-			inline uint32_t getTemp(void) { return (packet.temp); }
-			inline uint32_t getAmps(void) { return (packet.amps); }
+			void exitPowerMonNode(void);
+			void queueOutput(const std::shared_ptr<ThreadMsg> message);
 
 			friend std::ostream& operator<<(std::ostream& os, const PowerMonNode& node);
 	};
-
-	void powerMonNodeThreadProc(PowerMonNode& node);
-	void releaseNodeThreads(void);
-	bool nodeThreadsAreActive(void);
-
-
 } // namespace powermon

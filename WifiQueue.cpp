@@ -29,118 +29,81 @@ using namespace std;
 
 namespace powermon {
 
-	bool wifiQueueThreadIsActive;
-
-
-	void wifiQueueThreadProc(void)
+	void WifiQueue::_threadProcess(void)
 	{
-		// Initialize the WiFi queue
-		WifiQueue wifiQueue = WifiQueue::getWifiQueue();
+		std::string msg("Starting the Powermon WiFi queue thread.");
+		_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 
-		// Indicate the thread is active
-		wifiQueue.wifiQueueMutex->lock();
-		wifiQueueThreadIsActive = true;
-		wifiQueue.wifiQueueMutex->unlock();
+	    while (true)
+	    {
+	        std::shared_ptr<ThreadMsg> msg;
 
-		do {
-			ostringstream string1;
-			bool consoleNotification = true;
+			// Wait for a message to be added to the queue
+			std::unique_lock<std::mutex> lk(_wifiQueueMutex);
+			while (_wifiPacketQueue.empty())
+				_wifiQueueCondVar.wait(lk);
 
-			cout << "Is packet queue empty: " << wifiQueue.isPacketQueueEmpty() << endl;
+			if (_wifiPacketQueue.empty())
+				continue;
 
-			while (wifiQueue.isPacketQueueEmpty() == false)
-			{
-				cout << "WiFi queue is not empty" << endl;
+			msg = _wifiPacketQueue.front();
+			_wifiPacketQueue.pop();
 
-
-				wifiQueue.wifiQueueMutex->lock();
-				char *packet = wifiQueue.packetQueue.front();
-				cout << "Send to socket" << endl;
-				wifiQueue.socket.sendPacket(packet);
-				wifiQueue.packetQueue.pop();
-				wifiQueue.wifiQueueMutex->unlock();
-
-				if (wifiQueue.socket.isWifiSocketActive())
+	        switch (msg->getMsgId())
+	        {
+				case ThreadMsg::MsgId_MsgNodeData:
 				{
-					if (consoleNotification)
-					{
-						consoleNotification = false;
-						ostringstream ostr;
-						ostr << "Sending PowerMon data packet(s)." << endl;
-						string textStr = ostr.str();
-						wifiQueue.console.queueOutput(textStr);
-						string1.str("");
-					}
+					std::string txtMsg("Sending PowerMon data packet");
+		 			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, txtMsg));
+					_socket->sendPacket(msg->getMsg());
+					break;
 				}
 
-				free(packet);
+				case ThreadMsg::MsgId_MsgExitThread:
+				{
+					std::string msg("Leaving the Powermon WiFi queue process");
+		 			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+					return;
+				}
+
+				default:
+				{
+					std::ostringstream oss;
+					oss << "Received an unhandled message: " << msg->getMsgId();
+					std::string msg = oss.str();
+	    			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+					break;
+				}
 			}
-
-			this_thread::sleep_for(chrono::seconds(1));
-
-		} while (wifiQueue.isWifiQueueActive() == true);
-
-		cout << "Leaving the WiFi Queue ThreadProc" << endl;
+	    }
 	}
 
-	WifiQueue& WifiQueue::getWifiQueue(void)
-	{
-		static WifiQueue wifiQueue;
 
-		return (wifiQueue);
+	WifiQueue::WifiQueue(ConsoleOut& console) :
+		_console(console)
+	{
+		_socket = make_unique<WifiSocket>(console);
+		_wifiQueueThread = std::thread(&WifiQueue::_threadProcess, this);
 	}
 
-	WifiQueue::WifiQueue() :
-		console(ConsoleOut::getConsoleOut()),
-		socket(WifiSocket::getWifiSocket())
+	void WifiQueue::queueOutput(const std::shared_ptr<ThreadMsg> message)
 	{
-		wifiQueueThreadIsActive = false;
-		wifiQueueMutex = new std::mutex;
+	    // Add user data msg to queue and notify worker thread
+	    std::unique_lock<std::mutex> lk(_wifiQueueMutex);
+	    _wifiPacketQueue.push(message);
+	    _wifiQueueCondVar.notify_one();
 	}
 
-	void WifiQueue::queueOutput(const string& packet)
+	void WifiQueue::exitWifiQueue(void)
 	{
-		char *pkt = new char[packet.length() + 1];
-		strncpy(pkt, packet.c_str(), packet.length() + 1);
-
-		wifiQueueMutex->lock();
-		cout << "packetQueue.push" << endl;
-		packetQueue.push(pkt);
-		wifiQueueMutex->unlock();
-	}
-
-	bool WifiQueue::isPacketQueueEmpty(void)
-	{
-		wifiQueueMutex->lock();
-		bool isEmpty = packetQueue.empty();
-		wifiQueueMutex->unlock();
-		return (isEmpty);
-	}
-	bool WifiQueue::isWifiQueueActive(void)
-	{
-		wifiQueueMutex->lock();
-		bool isActive = wifiQueueThreadIsActive;
-		wifiQueueMutex->unlock();
-		return (isActive);
-	}
-
-	void WifiQueue::releaseWifiThread(void)
-	{
-		wifiQueueMutex->lock();
-		wifiQueueThreadIsActive = false;
-		wifiQueueMutex->unlock();
+	    // Create a new ThreadMsg
+		std::string msg("Exit PowerMon WiFi queue thread");
+		queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgExitThread, msg));
 	}
 
 	WifiQueue::~WifiQueue()
 	{
-		while (!packetQueue.empty())
-		{
-			char *packet = packetQueue.front();
-			packetQueue.pop();
-
-			free(packet);
-		}
-
-		free(wifiQueueMutex);
+		_wifiQueueThread.join();
+    	cout << "Joined the Powermon WiFi queue thread." << endl;
 	}
 } // namespace powermon

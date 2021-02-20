@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "ConsoleOut.h"
+#include "WifiQueue.h"
 #include "PowerMonNode.h"
 
 namespace powermon
@@ -29,29 +30,20 @@ namespace powermon
 
 	class PwrMonUnitTest
 	{
-		PwrMonUnitTest(uint32_t nodeCount);
-		int getNetworkAdaptorInfo(void);
-
-		std::vector<std::thread> pwrMonNodeThreads;
-		std::vector<PowerMonNode *> pwrMonNodes;
-		ConsoleOut& console;
+		std::vector<std::unique_ptr<PowerMonNode>> _pwrMonNodes;
+		uint32_t _nodeCount;
+		ConsoleOut& _console;
+		WifiQueue& _wifiQueue;
 
 	public:
-		static PwrMonUnitTest& getPwrMonUnitTest(uint32_t nodeCount);
-		~PwrMonUnitTest();
 
-		// This component would not build. It would received the error
-		// "result type must be constructible from value type of input range"
-		// From stackoverflow: "This appears to be an instance of the old
-		// 'move if noexcept' issue with std::vector"
-		// In order to force std::vector<pwrMonNodeThread>::push_back to
-		// use the move ctor, the copy ctor of pwrMonNodeThread has to be
-		// marked as deleted
-		PwrMonUnitTest(PwrMonUnitTest&&) noexcept(false) = default;
+		PwrMonUnitTest(uint32_t nodeCount, ConsoleOut& console, WifiQueue& wifiQueue);
+		~PwrMonUnitTest(void);
+
+		void exitPwrMonUnitTest(void);
 
 		void reportNodes(void);
 		void startThreads(void);
 		void stopThreads(void);
 	};
-
 }

@@ -19,70 +19,66 @@
 #include "PwrMonUnitTest.h"
 
 #include <iostream>
+#include "PowerMonNode.h"
 
 using namespace std;
 
 namespace powermon
 {
 
-	PwrMonUnitTest& PwrMonUnitTest::getPwrMonUnitTest(uint32_t nodeCount)
-	{
-		static PwrMonUnitTest unitTest(nodeCount);
-
-		return (unitTest);
-	}
-
-	PwrMonUnitTest::PwrMonUnitTest(uint32_t nodeCount) :
-		console(ConsoleOut::getConsoleOut())
+	PwrMonUnitTest::PwrMonUnitTest(uint32_t nodeCount, ConsoleOut& console, WifiQueue& wifiQueue) :
+		_nodeCount(nodeCount),
+		_console(console),
+		_wifiQueue(wifiQueue)
 	{
 		for (uint32_t i = 0; i < nodeCount; i++) {
-			PowerMonNode *node = new PowerMonNode(i+1u);
-			pwrMonNodes.insert(pwrMonNodes.end(), node);
-			thread pwrMonNodeThread(powerMonNodeThreadProc, std::ref(*node));
-			pwrMonNodeThreads.push_back(std::move(pwrMonNodeThread));
+
+			_pwrMonNodes.push_back(std::make_unique<PowerMonNode>(i+1u, _console, _wifiQueue));
 		}
 	}
 
 	void PwrMonUnitTest::reportNodes(void)
 	{
-		vector<PowerMonNode *>::iterator pwrMonNode;
+		std::vector<std::unique_ptr<PowerMonNode>>::iterator pwrMonNode;
 
-		for (pwrMonNode = pwrMonNodes.begin(); pwrMonNode < pwrMonNodes.end(); pwrMonNode++)
+		for (pwrMonNode = _pwrMonNodes.begin(); pwrMonNode < _pwrMonNodes.end(); pwrMonNode++) {
 			cout << "PowerMon Unit Test Node: " << (*pwrMonNode)->nodeId() << endl;
+		}
 	}
 
 	void PwrMonUnitTest::startThreads(void)
 	{
-		vector<PowerMonNode *>::iterator pwrMonNode;
+#if 0
+		std::vector<std::unique_ptr<PowerMonNode>>::iterator pwrMonNode;
 
-		for (pwrMonNode = pwrMonNodes.begin(); pwrMonNode < pwrMonNodes.end(); pwrMonNode++)
+		for (pwrMonNode = _pwrMonNodes.begin(); pwrMonNode < _pwrMonNodes.end(); pwrMonNode++)
 			(*pwrMonNode)->resumeNodeThread();
+#endif
 	}
 
 	void PwrMonUnitTest::stopThreads(void)
 	{
-		releaseNodeThreads();
+#if 0
+		std::vector<std::unique_ptr<PowerMonNode>>::iterator pwrMonNode;
 
-		vector<std::thread>::iterator pwrMonNodeThread;
+		for (pwrMonNode = _pwrMonNodes.begin(); pwrMonNode < _pwrMonNodes.end(); pwrMonNode++) {
+			(*pwrMonNode)->exitPowerMonNode();
+		}
+#endif
+	}
 
-		for (pwrMonNodeThread = pwrMonNodeThreads.begin(); pwrMonNodeThread < pwrMonNodeThreads.end(); pwrMonNodeThread++) {
-			pwrMonNodeThread->join();
+	void PwrMonUnitTest::exitPwrMonUnitTest(void)
+	{
+		std::vector<std::unique_ptr<PowerMonNode>>::iterator pwrMonNode;
+
+		for (pwrMonNode = _pwrMonNodes.begin(); pwrMonNode < _pwrMonNodes.end(); pwrMonNode++) {
+			(*pwrMonNode)->exitPowerMonNode();
 		}
 	}
 
-	PwrMonUnitTest::~PwrMonUnitTest()
+	PwrMonUnitTest::~PwrMonUnitTest(void)
 	{
-		vector<PowerMonNode *>::iterator pwrMonNode;
-
-		for (pwrMonNode = pwrMonNodes.begin(); pwrMonNode < pwrMonNodes.end(); pwrMonNode++)
-			free(*pwrMonNode);
-	}
-
-	int PwrMonUnitTest::getNetworkAdaptorInfo(void)
-	{
-		int retVal = 0;
-
-		return (retVal);
+		_pwrMonNodes.clear();
 	}
 
 } // namespace powermon

@@ -25,71 +25,74 @@
 
 namespace powermon {
 
+#define NO_SOCKET -1
+
 	class WifiSocket
 	{
-		// =============================
-		class SockClient	// Talker
-		// =============================
-		{
-			int sockfd;
-			bool clientIsActive;
+	// =============================
+	class SockClient	// Talker
+	// =============================
+	{
+		int _sockfd;
+		ConsoleOut& _console;
 
-			SockClient(void);
+	public:
 
-		public:
+		SockClient(ConsoleOut& console);
 
-			static SockClient& getSockClient(void);
-			bool isSockClientActive(void) { return clientIsActive; }
-			/*
-			 * uint8_t *data - buffer of data to send
-			 * uint16_t dataLen - number of bytes to send
-			 * returns number of bytes sent
-			 * A return of -1 means the transmit failed
-			 */
-			ssize_t transmit(uint8_t *data, size_t dataLen);
-		};
+		bool isSockClientActive(void) { return (_sockfd != NO_SOCKET); }
+		/*
+		 * uint8_t *data - buffer of data to send
+		 * uint16_t dataLen - number of bytes to send
+		 * returns number of bytes sent
+		 * A return of -1 means the transmit failed
+		 */
+		ssize_t transmit(uint8_t *data, size_t dataLen);
+	};
 
-		// =============================
-		class SockServer	// Listener
-		// =============================
-		{
-			int sockfd;
-			bool serverIsActive;
+	// =============================
+	class SockServer	// Listener
+	// =============================
+	{
+		int _sockfd;
+		ConsoleOut& _console;
 
-			SockServer(void);
+	public:
 
-		public:
+		SockServer(ConsoleOut& console);
 
-			static SockServer& getSockServer(void);
-			bool isSockServerActive(void) { return serverIsActive; }
-			/*
-			 * uint8_t *data - buffer to place data into
-			 * uint16_t dataLen - size of buffer
-			 * returns number of bytes received
-			 * A return of -1 means the receive failed
-			 */
-			ssize_t receive(uint8_t *data, size_t dataLen);
-		};
+		bool isSockServerActive(void) { return (_sockfd != NO_SOCKET); }
 
-			WifiSocket();
+		/*
+		 * uint8_t *data - buffer to place data into
+		 * uint16_t dataLen - size of buffer
+		 * returns number of bytes received
+		 * A return of -1 means the receive failed
+		 */
+		ssize_t receive(uint8_t *data, size_t dataLen);
+	};
 
-			SockServer& server;
-			SockClient& client;
-			ConsoleOut& console;
-			std::mutex *wifiSocketMutex;
 
-		public:
+		ConsoleOut& _console;
 
-			static WifiSocket& getWifiSocket(void);
+		bool _socketIsActive;
+		SockServer _server;
+		SockClient _client;
 
-			~WifiSocket();
+		WifiSocket(WifiSocket&) = delete;
+		WifiSocket& operator=(WifiSocket&) = delete;
 
-			void sendPacket(char *packet);
+	public:
 
-			bool isWifiSocketActive(void);
-			void setWifiSocketIsNotActive(void);
-			void setWifiSocketIsActive(void);
+		WifiSocket(ConsoleOut& console);
+		~WifiSocket(void);
 
-};
+		void sendPacket(char *packet);
+
+		bool isWifiSocketActive(void);
+		void setWifiSocketIsNotActive(void);
+		void setWifiSocketIsActive(void);
+
+	};
 
 }

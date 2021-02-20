@@ -28,7 +28,6 @@ using namespace powermon;
 
 #define MAX_TEST_NODES 10
 string inputErrStr = "Provide a single node count value greater than 0 and less than or equal to 10.";
-string keypressPrompt = "Press 'x' and return to continue.";
 
 void parseArgs(char *argString);
 
@@ -50,51 +49,36 @@ void parseArgs(char *argString)
 
 		if (nodeCount > 0 && nodeCount <= MAX_TEST_NODES)
 		{
-			// Node count checks out. Create the console thread.
-			thread consoleThread(consoleOutThreadProc);		// Console thread proc
+			// Create the console
+			ConsoleOut console;
 
-			// Create the Avahi client thread
-			thread avahiClientThread(pwrmonSvcClientThreadProc);	// Avahi client thread proc
+			// Create the Powermon Avahi service threads
+			PwrmonSvcClient pwrmonSvcClient(console);
 
 			// Create the WiFi queue
-			thread wifiQueueThread(wifiQueueThreadProc);	// WiFi queue thread proc
+			WifiQueue wifiQueue(console);
 
 			// Create the requested number of test nodes.
-			PwrMonUnitTest& unitTest = PwrMonUnitTest::getPwrMonUnitTest(nodeCount);
-
-			unitTest.reportNodes();
-			unitTest.startThreads();
+			PwrMonUnitTest unitTest(nodeCount, console, wifiQueue);
 
 			// Wait here on a keypress before continuing to exit
-			cout << keypressPrompt << endl;
+			std::string msg("Press 'x' and return to continue.");
+ 			console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 
 			char keypress;
 			do {
 				cin >> keypress;
 			} while (keypress != 'x');
 
-			cout << "Shutting down threads." << endl;
+			msg.clear();
+			msg = "Shutting down threads.";
+ 			console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 
-			unitTest.stopThreads();
+			unitTest.exitPwrMonUnitTest();
 
-			WifiQueue& wifiQueue = WifiQueue::getWifiQueue();
-			wifiQueue.releaseWifiThread();
-			//while(wifiQueue.isWifiQueueActive()) {};
-			wifiQueueThread.join();
-
-			PwrmonSvcClient::getPwrmonSvcClient().releasePwrmonSvcClient();
-			avahiClientThread.join();
-
-			ConsoleOut::getConsoleOut().releaseConsoleOut();
-			consoleThread.join();
-
-			for (int i = 6; i > 0; --i)
-			{
-				std::this_thread::sleep_for(std::chrono::seconds(1));
-				cout << i << "...";
-			}
-
-			cout << endl;
+			wifiQueue.exitWifiQueue();
+			pwrmonSvcClient.exitPwrmonSvcClient();
+			console.exitConsoleOut();
 		}
 		else
 			cout << inputErrStr << endl;
