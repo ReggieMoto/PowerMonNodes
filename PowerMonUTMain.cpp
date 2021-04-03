@@ -19,6 +19,7 @@
 #include "ConsoleOut.h"
 #include "PwrmonSvcClient.h"
 #include "PwrMonUnitTest.h"
+#include "ThreadMsg.h"
 #include "WifiQueue.h"
 
 #include <iostream>
@@ -47,16 +48,18 @@ void parseArgs(char *argString)
 	{
 		int nodeCount = stoi(argString, NULL, 10);
 
+		srand(time(0));
+
 		if (nodeCount > 0 && nodeCount <= MAX_TEST_NODES)
 		{
 			// Create the console
 			ConsoleOut console;
 
-			// Create the Powermon Avahi service threads
-			PwrmonSvcClient pwrmonSvcClient(console);
-
 			// Create the WiFi queue
 			WifiQueue wifiQueue(console);
+
+			// Create the Powermon Avahi service threads
+			PwrmonSvcClient svcClient(console, wifiQueue);
 
 			// Create the requested number of test nodes.
 			PwrMonUnitTest unitTest(nodeCount, console, wifiQueue);
@@ -76,8 +79,8 @@ void parseArgs(char *argString)
 
 			unitTest.exitPwrMonUnitTest();
 
+			svcClient.exitPwrmonSvcClient();
 			wifiQueue.exitWifiQueue();
-			pwrmonSvcClient.exitPwrmonSvcClient();
 			console.exitConsoleOut();
 		}
 		else

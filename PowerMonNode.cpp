@@ -16,40 +16,97 @@
 // is obtained David Hammond.
 // ==============================================================
 
+#include "ConsoleOut.h"
 #include "PowerMonNode.h"
+#include "ThreadMsg.h"
+#include "WifiQueue.h"
 
+#include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
-#include <thread>
-
-#include "ConsoleOut.h"
-#include "WifiQueue.h"
 
 using namespace std;
 
 namespace powermon {
 
-	#define PWR_MON_NODE_SLEEP_DURATION 2
-	#define PWR_MON_NODE_TEMP_INIT 70u
+#define PWR_MON_NODE_SLEEP_DURATION 5000ms
+#define PWR_MON_NODE_TEMP_INIT 70u
+#define	PWR_MON_MAX_AMPS 12u
+#define	PWR_MON_NOM_AMPS 6u
+#define PWR_MON_MIN_TEMP 33u
+#define PWR_MON_MAX_TEMP 42u
+
+	void PowerMonNode::_calcCurrentStatus(void)
+	{
+		_secTime -= 5;
+
+		// Stay at MAX AMPs for 5 seconds then drop to Nominal
+		if ((_packet.node.operation == Cooling) &&
+			(_packet.data.amps == PWR_MON_MAX_AMPS) &&
+			(_secTime == (cooldownScale[_type]-5))) {
+			_packet.data.amps = PWR_MON_NOM_AMPS;
+		}
+
+		if (_secTime == 0) { // We counted down for a temp change
+
+			// See whether we're cooling or not
+			if (_packet.node.operation == Cooling) {
+
+				_packet.data.temp -= 1; /* Go down a degree */
+
+				// Now see whether we need to transition to idle/warmup
+				if (_packet.data.temp == PWR_MON_MIN_TEMP) {
+					_packet.node.operation = Idle;
+					_packet.data.amps = 0u;
+					_secTime = warmupScale[_type];
+				} else {
+					// Nope. Just keep cooling
+					_secTime = cooldownScale[_type];
+				}
+
+			} else { // Not cooling so either Idle, defrost or in OFF mode
+
+				_packet.data.temp += 1; /* Go up a degree */
+
+				// Now see whether we need to transition to cooling
+				if (_packet.data.temp == PWR_MON_MAX_TEMP) {
+					_packet.node.operation = Cooling;
+					_packet.data.amps = PWR_MON_MAX_AMPS;
+					_secTime = cooldownScale[_type];
+				} else {
+					// Nope. Just let it warm up
+					_secTime = warmupScale[_type];
+				}
+			}
+		}
+	}
 
 	void PowerMonNode::_timerProcess(void)
 	{
-		do {
-			// Sleep for a bit (2 secs)
-	        std::this_thread::sleep_for(2000ms);
+		std::ostringstream oss;
+		oss << "Starting the Powermon node timer thread for " << this->_nodeIdentifier;
+		std::string msg = oss.str();
+		_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 
-		    // Create a new ThreadMsg
+		do {
+			// Sleep for a bit (5 secs)
+	        std::this_thread::sleep_for(PWR_MON_NODE_SLEEP_DURATION);
+
+	        // Update the current temp/amp draw
+			_calcCurrentStatus();
+
+			// Create a new ThreadMsg
 			std::string msg("Send a PowerMon node packet");
 			queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgNodeData, msg));
 
 		} while (_timerActive);
 
-		std::ostringstream oss;
+		oss.clear();
 		oss << "Leaving the Powermon node timer thread for " << this->_nodeIdentifier;
-		std::string msg = oss.str();
+		msg = oss.str();
 		_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 }
 
@@ -80,11 +137,15 @@ namespace powermon {
 	        {
 				case ThreadMsg::MsgId_MsgNodeData:
 				{
-					std::ostringstream oss;
+					ThreadMsg::DataMsg_t data;
+					data.len = sizeof(Packet);
+					memcpy(data.buffer, &_packet, sizeof(Packet));
+				    _wifiQueue.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgNodeData, data));
+
+				    std::ostringstream oss;
 					oss << *this;
 					std::string nodeData =  oss.str();
 
-				    _wifiQueue.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgNodeData, nodeData));
 	    			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, nodeData));
 
 					break;
@@ -114,12 +175,15 @@ namespace powermon {
 	ostream& operator<<(ostream& os, const PowerMonNode& node)
 	{
 		os <<
-			setfill('0') << setw(sizeof(node._packet.nodeId)) << node._packet.nodeId <<
-			setfill('0') << setw(sizeof(node._packet.version)) << uint32_t(node._packet.version) <<
-			setfill('0') << setw(sizeof(node._packet.temp)) << uint32_t(node._packet.temp) <<
-			setfill('0') << setw(sizeof(node._packet.mode)) << uint32_t(node._packet.mode) <<
-			setfill('0') << setw(sizeof(node._packet.operation)) << uint32_t(node._packet.operation) <<
-			setfill('0') << setw(sizeof(node._packet.amps)) << uint32_t(node._packet.amps);
+			setfill('0') << setw(sizeof(node._packet.version)) << (node._packet.version) << "." <<
+			setfill('0') << setw(sizeof(node._packet.msgType)) << (node._packet.msgType) << "." <<
+			setfill('0') << setw(sizeof(node._packet.node.serialNumber.mfgId)) << node._packet.node.serialNumber.mfgId <<  "-" <<
+			setfill('0') << setw(sizeof(node._packet.node.serialNumber.nodeId)) << node._packet.node.serialNumber.nodeId << "." <<
+			setfill('0') << setw(sizeof(node._type)) << int(node._type) <<  "." <<
+			setfill('0') << setw(sizeof(node._packet.node.mode)) << (node._packet.node.mode) << "." <<
+			setfill('0') << setw(sizeof(node._packet.node.operation)) << (node._packet.node.operation) << "." <<
+			setfill('0') << setw(sizeof(node._packet.data.temp)) << int(node._packet.data.temp) << "." <<
+			setfill('0') << setw(sizeof(node._packet.data.amps)) << int(node._packet.data.amps) << ".";
 
 		return (os);
 	}
@@ -134,13 +198,21 @@ namespace powermon {
 			ts.tv_nsec = 0;
 		}
 
-		_nodeIdentifier = to_string(ts.tv_nsec) + "-" + to_string(nodeId);
-		strncpy(_packet.nodeId, _nodeIdentifier.c_str(), NodeIdLength-1);
-		_packet.version = nodeVersion;
-		_packet.temp = PWR_MON_NODE_TEMP_INIT;
-		_packet.mode = Auto;
-		_packet.operation = Normal;
-		_packet.amps = 0u;
+		_type = nodeType_t((rand() % nodeType_count));
+		_secTime = cooldownScale[_type];
+
+		uint64_t mfgId = (uint64_t)ts.tv_nsec;
+		_nodeIdentifier = to_string(mfgId) + "-" + to_string(nodeId);
+
+		_packet.node.serialNumber.mfgId = mfgId;
+		_packet.node.serialNumber.nodeId = nodeId;
+		_packet.version = NodeVersion;
+		_packet.msgType = client_Data;
+		_packet.node.nodeIp = 0u;
+		_packet.node.mode = Auto;
+		_packet.node.operation = Cooling;
+		_packet.data.temp = PWR_MON_NODE_TEMP_INIT;
+		_packet.data.amps = PWR_MON_MAX_AMPS;
 
 		_powerMonNodeThread = std::thread(&PowerMonNode::_threadProcess, this);
 		_powerMonNodeTimerThread = std::thread(&PowerMonNode::_timerProcess, this);

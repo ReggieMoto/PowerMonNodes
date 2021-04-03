@@ -18,43 +18,56 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <ostream>
+#include <queue>
 #include <string>
+#include <thread>
 
-#include "WifiQueue.h"
-#include "ConsoleOut.h"
+#include "powermon_pkt.h"
 
 namespace powermon
 {
 
+	class WifiQueue;
+	class ConsoleOut;
+	class ThreadMsg;
+
 	class PowerMonNode
 	{
 		public:
-
-			enum Mode_e {
-				Off,
-				Auto
-			};
-
-			enum Operation_e {
-				Normal,
-				Defrost
-			};
-
-			static uint32_t const NodeIdLength = 32;
-			static uint32_t const nodeVersion = 1;
+			typedef enum nodeType_e {
+				nodeType_first = 0,
+				nodeType_oldest = nodeType_first,
+				nodeType_older,
+				nodeType_old,
+				nodeType_mid,
+				nodeType_new,
+				nodeType_newer,
+				nodeType_newest,
+				nodeType_last = nodeType_newest,
+				nodeType_count
+			} nodeType_t;
 
 		private:
+			/*
+			 * temps run from 33 to 42, 9 degrees
+			 * old inefficient nodes cool slowly and warm quickly
+			 * new efficient nodes cool quickly and warm slowly
+			 * oldest = cool down in 36.0 minutes; warm up in 18.0 minutes
+			 * older  = cool down in 31.5 minutes; warm up in 27.0 minutes
+			 * old    = cool down in 27.0 minutes; warm up in 36.0 minutes
+			 * mid    = cool down in 22.5 minutes; warm up in 45.0 minutes
+			 * new    = cool down in 18.0 minutes; warm up in 54.0 minutes
+			 * newer  = cool down in 13.5 minutes; warm up in 63.0 minutes
+			 * newest = cool down in  9.0 minutes; warm up in 72.0 minutes
+			 */
+			const uint32_t warmupScale[nodeType_count]   = {120,180,240,300,360,420,480};
+			const uint32_t cooldownScale[nodeType_count] = {240,210,180,150,120,90,60};
 
-			typedef struct _packet {
-				uint32_t version;
-				char nodeId[NodeIdLength];
-				Mode_e mode;	// Auto = 1(default)/Off = 0
-				Operation_e operation;	// Normal = 1 (default)/Defrost = 0
-				uint32_t temp;
-				uint32_t amps;
-			} Packet;
+			nodeType_t _type;
+			uint32_t _secTime;
 
 			Packet _packet;
 			std::string _nodeIdentifier;
@@ -70,17 +83,17 @@ namespace powermon
 			bool _timerActive;
 			void _timerProcess(void);
 			void _threadProcess(void);
-
+			void _calcCurrentStatus(void);
 		public:
 
 			PowerMonNode(uint32_t nodeId, ConsoleOut& console, WifiQueue& wifiQueue);
 			~PowerMonNode(void);
 
 			std::string nodeId(void) { return (_nodeIdentifier); }
-			inline Mode_e getMode(void) { return (_packet.mode); }
-			inline Operation_e getOperation(void) { return (_packet.operation); }
-			inline uint32_t getTemp(void) { return (_packet.temp); }
-			inline uint32_t getAmps(void) { return (_packet.amps); }
+			inline Mode_e getMode(void) { return (_packet.node.mode); }
+			inline Operation_e getOperation(void) { return (_packet.node.operation); }
+			inline uint8_t getTemp(void) { return (_packet.data.temp); }
+			inline uint8_t getAmps(void) { return (_packet.data.amps); }
 
 			void exitPowerMonNode(void);
 			void queueOutput(const std::shared_ptr<ThreadMsg> message);

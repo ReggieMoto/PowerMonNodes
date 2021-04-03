@@ -34,10 +34,17 @@ namespace powermon {
 			MsgId_NoMsg = MsgId_First,
 			MsgId_MsgNodeData,
 			MsgId_MsgConsoleStr,
+			MsgId_AvahiSvcUp,
+			MsgId_AvahiSvcDown,
 			MsgId_MsgTimer,
 			MsgId_MsgExitThread,
 			MsgId_Last = MsgId_MsgExitThread
 		} MsgId;
+
+		typedef struct dataMsg_s {
+			uint8_t len;
+			uint8_t buffer[MaxMsgLen];
+		} DataMsg_t;
 
 	private:
 
@@ -47,6 +54,7 @@ namespace powermon {
 	public:
 		ThreadMsg(void);
 		ThreadMsg(MsgId id, std::string& data);
+		ThreadMsg(MsgId id, DataMsg_t& data);
 
 		inline MsgId getMsgId(void) { return (_id); }
 		inline char* getMsg(void) { return (_msg); }

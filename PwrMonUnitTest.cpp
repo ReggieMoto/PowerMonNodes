@@ -16,10 +16,12 @@
 // is obtained David Hammond.
 // ==============================================================
 
+#include "ConsoleOut.h"
+#include "PowerMonNode.h"
 #include "PwrMonUnitTest.h"
+#include "WifiQueue.h"
 
 #include <iostream>
-#include "PowerMonNode.h"
 
 using namespace std;
 

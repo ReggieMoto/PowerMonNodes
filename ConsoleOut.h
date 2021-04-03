@@ -17,8 +17,6 @@
 // ==============================================================
 #pragma once
 
-#include <ThreadMsg.h>
-
 #include <condition_variable>
 #include <mutex>
 #include <queue>
@@ -26,6 +24,8 @@
 #include <thread>
 
 namespace powermon {
+
+	class ThreadMsg;
 
 	class ConsoleOut
 	{
