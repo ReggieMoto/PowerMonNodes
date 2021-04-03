@@ -29,6 +29,17 @@ namespace powermon {
 		memset(_msg, 0, MaxMsgLen);
 	}
 
+	ThreadMsg::ThreadMsg(MsgId id, DataMsg_t& data)
+	{
+		_id = id;
+
+		if (data.len > MaxMsgLen) {
+			data.len = MaxMsgLen;
+		}
+
+		memcpy(_msg, data.buffer, data.len);
+	}
+
 	ThreadMsg::ThreadMsg(MsgId id, std::string& data)
 	{
 		_id = id;

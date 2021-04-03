@@ -16,15 +16,17 @@
 // is obtained David Hammond.
 // ==============================================================
 
-#include "WifiSocket.h"
+#include "ConsoleOut.h"
+#include "powermon_pkt.h"
+#include "PwrmonSvcClient.h"
 #include "ThreadMsg.h"
+#include "WifiSocket.h"
 
 #include <chrono>         // std::chrono::seconds
 #include <errno.h>
 #include <iostream>
 #include <ostream>
 #include <sstream>
-#include <thread>         // std::this_thread::sleep_for
 
 #include <string.h>
 #include <sys/types.h>
@@ -123,30 +125,27 @@ namespace powermon {
 			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 			close(_sockfd);
 		} else {
-#if 0
-			AvahiIPv4Address svcAddr = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcAddr();
-			uint16_t port = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcPort();
+
+			AvahiIPv4Address svcAddr = getPwrmonSvcAddr();
+			uint16_t port = getPwrmonSvcPort();
 
 			struct sockaddr_in addr;
 			addr.sin_family = AF_INET;
 			addr.sin_port   = htons(port);
 			addr.sin_addr.s_addr = (in_addr_t)svcAddr.address;
 
-			int status = connect(sockfd, (struct sockaddr *)&addr, sizeof(struct sockaddr));
+			int status = connect(_sockfd, (struct sockaddr *)&addr, sizeof(struct sockaddr));
 			if (status == -1) {
 				cout << "Failed to connect to client socket service address" << endl;
+				close(_sockfd);
 			} else {
-				clientIsActive = true;
-				cout << "WiFi client socket is active" << endl;
+				std::string msg("WiFi client socket is active");
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 			}
-#else
-			std::string msg("WiFi client socket is active");
-			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
-#endif
 		}
 	}
 
-	ssize_t WifiSocket::SockClient::transmit(uint8_t *data, size_t dataLen)
+	ssize_t WifiSocket::SockClient::transmit(void *data, size_t dataLen)
 	{
 		ssize_t bytesSent;
 
@@ -162,6 +161,13 @@ namespace powermon {
 				oss << "Socket send failed: " << strerror(errnum);
 				std::string msg = oss.str();
 				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+			} else {
+#if 0
+				std::ostringstream oss;
+				oss << "Socket send succeeded. (sent " << bytesSent << "bytes)";
+				std::string msg = oss.str();
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+#endif
 			}
 
 		} else {
@@ -183,14 +189,24 @@ namespace powermon {
 			(_client.isSockClientActive() == true)) {
 			_socketIsActive = true;
 		}
+
+		AvahiIPv4Address svcAddr = getPwrmonSvcAddr();
+		uint16_t port = getPwrmonSvcPort();
+
+		std::ostringstream oss;
+		oss << "Socket " << svcAddr.address << ":" << port << " is active";
+		std::string msg = oss.str();
+		_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 	}
 
 	void WifiSocket::sendPacket(char *packet)
 	{
-		if (isWifiSocketActive())
+		if (_server.isSockServerActive())
 		{
-			std::string msg(packet);
-			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+ 			ssize_t sentCount = _client.transmit(packet, sizeof(Packet));
+		} else {
+			std::string msg("Sock: Socket is not active");
+ 			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 		}
 	}
 

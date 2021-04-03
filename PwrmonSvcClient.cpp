@@ -27,7 +27,10 @@
 // ==============================================================
 
 
+#include "ConsoleOut.h"
 #include "PwrmonSvcClient.h"
+#include "ThreadMsg.h"
+#include "WifiQueue.h"
 
 #include <cstring>
 #include <iostream>
@@ -68,12 +71,13 @@ namespace powermon {
 			AvahiLookupResultFlags flags,
 			void* userdata);
 
+	static void avahiSvcClientProcess(void);
+	static void initAvahiSvcClientConfig(ConsoleOut& console, WifiQueue& wifiQueue);
 	static void releaseAvahiSvcClientResources(void);
-	static void initAvahiSvcClientConfig(ConsoleOut& console);
 
 	static avahiSvcClientConfig_t avahiSvcClientConfig;
 
-	void avahiSvcClientProcess(void)
+	static void avahiSvcClientProcess(void)
 	{
 		int error;
 		AvahiSvcClientConsoleAccess *console = avahiSvcClientConfig.consoleAccess;
@@ -131,7 +135,7 @@ namespace powermon {
 		releaseAvahiSvcClientResources();
 	}
 
-	static void initAvahiSvcClientConfig(ConsoleOut& console)
+	static void initAvahiSvcClientConfig(ConsoleOut& console, WifiQueue& wifiQueue)
 	{
 		avahiSvcClientConfig.simple_poll = NULL;
 		avahiSvcClientConfig.client = NULL;
@@ -145,6 +149,28 @@ namespace powermon {
     	avahiSvcClientConfig.port = 0;
 
     	avahiSvcClientConfig.consoleAccess = new AvahiSvcClientConsoleAccess(console);
+    	avahiSvcClientConfig.wifiAccess = new AvahiSvcClientWifiAccess(wifiQueue);
+	}
+
+	static void releaseAvahiSvcClientResources(void)
+	{
+        if (avahiSvcClientConfig.serviceBrowser) {
+	        avahi_service_browser_free(avahiSvcClientConfig.serviceBrowser);
+	        avahiSvcClientConfig.serviceBrowser = NULL;
+        }
+
+	    if (avahiSvcClientConfig.client) {
+	        avahi_client_free(avahiSvcClientConfig.client);
+	        avahiSvcClientConfig.client = NULL;
+	    }
+
+	    if (avahiSvcClientConfig.simple_poll) {
+	        avahi_simple_poll_free(avahiSvcClientConfig.simple_poll);
+	        avahiSvcClientConfig.simple_poll = NULL;
+	    }
+
+		delete avahiSvcClientConfig.consoleAccess;
+		delete avahiSvcClientConfig.wifiAccess;
 	}
 
 	AvahiIPv4Address getPwrmonSvcAddr(void)
@@ -187,6 +213,7 @@ namespace powermon {
 	    void* userdata)
 	{
 		AvahiSvcClientConsoleAccess *console = avahiSvcClientConfig.consoleAccess;
+		AvahiSvcClientWifiAccess *wifi = avahiSvcClientConfig.wifiAccess;
 
 		/* Called whenever a service has been resolved successfully or timed out */
 	    switch (event) {
@@ -200,7 +227,7 @@ namespace powermon {
 	        }
 	        case AVAHI_RESOLVER_FOUND: {
 				std::ostringstream oss;
-	        	oss << "Resolver found service " << name << " of type " << type << " in domain " << domain;
+
 				console->sendConsoleOut(oss.str().c_str());
 
 	        	avahiSvcClientConfig.interface = interface;
@@ -210,26 +237,19 @@ namespace powermon {
 	        	avahiSvcClientConfig.address = address->data.ipv4;
 	        	avahiSvcClientConfig.port = port;
 
-				oss.clear();
-	        	oss << "Service host: " << host_name;
-				console->sendConsoleOut(oss.str().c_str());
-#if 0
 	        	uint8_t *ipaddr = (uint8_t *)&avahiSvcClientConfig.address.address;
+	        	int a[4] = { int(*(ipaddr)), int(*(ipaddr+1)), int(*(ipaddr+2)), int(*(ipaddr+3)) };
 
-	        	printf("%p: 0x%02x\n", ipaddr, *(ipaddr));
-	        	printf("%p: 0x%02x\n", ipaddr+1, *(ipaddr+1));
-	        	printf("%p: 0x%02x\n", ipaddr+2, *(ipaddr+2));
-	        	printf("%p: 0x%02x\n", ipaddr+3, *(ipaddr+3));
+	        	oss << "Resolver found " << name << "service at " <<
+						a[0] << "." << a[1] << "." << a[2] << "." << a[3] <<
+						":" << port;
 
-	        	cout << "Service host IP address: " << hex <<
-	        			*(ipaddr) << "." <<
-						*(ipaddr+1) << "." <<
-						*(ipaddr+2) << "." <<
-						*(ipaddr+3) << endl;
-#endif
-				oss.clear();
-	        	oss << dec << "Service port: " << port;
 				console->sendConsoleOut(oss.str().c_str());
+
+				if (((a[0] & 0x0FFu) == 10) &&
+					((a[1] & 0x0FFu) == 0)) {
+					wifi->sendAvahiSvcUp();
+				}
 	        }
 	    }
 
@@ -249,6 +269,7 @@ namespace powermon {
 	    void* userdata)
 	{
 		AvahiSvcClientConsoleAccess *console = avahiSvcClientConfig.consoleAccess;
+		AvahiSvcClientWifiAccess *wifi = avahiSvcClientConfig.wifiAccess;
 
 	    AvahiClient *client = (AvahiClient *)userdata;
 
@@ -298,7 +319,8 @@ namespace powermon {
 	        	oss << "Remove Browser Service: " << name << " of type " << type
 	        			<< " in domain " << domain;
 				console->sendConsoleOut(oss.str().c_str());
-	            break;
+				wifi->sendAvahiSvcDown();
+				break;
 	        }
 	        case AVAHI_BROWSER_ALL_FOR_NOW:
 	        case AVAHI_BROWSER_CACHE_EXHAUSTED:
@@ -307,26 +329,6 @@ namespace powermon {
 	        }
 	    }
 	}
-
-	static void releaseAvahiSvcClientResources(void)
-	{
-        if (avahiSvcClientConfig.serviceBrowser) {
-	        avahi_service_browser_free(avahiSvcClientConfig.serviceBrowser);
-	        avahiSvcClientConfig.serviceBrowser = NULL;
-        }
-
-	    if (avahiSvcClientConfig.client) {
-	        avahi_client_free(avahiSvcClientConfig.client);
-	        avahiSvcClientConfig.client = NULL;
-	    }
-
-	    if (avahiSvcClientConfig.simple_poll) {
-	        avahi_simple_poll_free(avahiSvcClientConfig.simple_poll);
-	        avahiSvcClientConfig.simple_poll = NULL;
-	    }
-
-		delete avahiSvcClientConfig.consoleAccess;
-}
 
 	// =============================================
 	//
@@ -343,6 +345,29 @@ namespace powermon {
 	{
 		std::string msg(text);
 		_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+	}
+
+	// =============================================
+	//
+	// AvahiSvcClientWifiAccess
+	//
+	// =============================================
+
+	AvahiSvcClientWifiAccess::AvahiSvcClientWifiAccess(WifiQueue& wifiQueue) :
+		_wifiQueue(wifiQueue)
+	{
+	}
+
+	void AvahiSvcClientWifiAccess::sendAvahiSvcUp(void)
+	{
+		std::string msg("");
+		_wifiQueue.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_AvahiSvcUp, msg));
+	}
+
+	void AvahiSvcClientWifiAccess::sendAvahiSvcDown(void)
+	{
+		std::string msg("");
+		_wifiQueue.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_AvahiSvcDown, msg));
 	}
 
 	// =============================================
@@ -399,10 +424,11 @@ namespace powermon {
 	    }
 	}
 
-	PwrmonSvcClient::PwrmonSvcClient(ConsoleOut& console) :
-			_console(console)
+	PwrmonSvcClient::PwrmonSvcClient(ConsoleOut& console, WifiQueue& wifiQueue) :
+			_console(console),
+			_wifiQueue(wifiQueue)
 	{
-		initAvahiSvcClientConfig(console);
+		initAvahiSvcClientConfig(console, wifiQueue);
 
 		_threads.push_back(std::thread(&avahiSvcClientProcess));
 		_threads.push_back(std::thread(&PwrmonSvcClient::_threadProcess, this));

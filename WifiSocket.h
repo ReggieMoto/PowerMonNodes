@@ -20,12 +20,12 @@
 #include <mutex>
 #include <netinet/in.h>
 
-#include "ConsoleOut.h"
-#include "PwrmonSvcClient.h"
-
 namespace powermon {
 
 #define NO_SOCKET -1
+
+	class ConsoleOut;
+	class PwrmonSvcClient;
 
 	class WifiSocket
 	{
@@ -47,7 +47,7 @@ namespace powermon {
 		 * returns number of bytes sent
 		 * A return of -1 means the transmit failed
 		 */
-		ssize_t transmit(uint8_t *data, size_t dataLen);
+		ssize_t transmit(void *data, size_t dataLen);
 	};
 
 	// =============================

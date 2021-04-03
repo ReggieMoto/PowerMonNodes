@@ -18,15 +18,14 @@
 #pragma once
 
 #include <cstdint>
-#include <thread>
+#include <memory>
 #include <vector>
-
-#include "ConsoleOut.h"
-#include "WifiQueue.h"
-#include "PowerMonNode.h"
 
 namespace powermon
 {
+	class ConsoleOut;
+	class WifiQueue;
+	class PowerMonNode;
 
 	class PwrMonUnitTest
 	{

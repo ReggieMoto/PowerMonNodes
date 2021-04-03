@@ -23,9 +23,6 @@
 #include <avahi-common/malloc.h>
 #include <avahi-common/error.h>
 
-#include <ThreadMsg.h>
-#include <ConsoleOut.h>
-
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -36,11 +33,16 @@
 
 namespace powermon {
 
-	void avahiSvcClientProcess(void);
+	class ConsoleOut;
+	class WifiQueue;
+	class ThreadMsg;
+
 	AvahiIPv4Address getPwrmonSvcAddr(void);
 	uint16_t getPwrmonSvcPort(void);
 
+	// =============================================
 	class AvahiSvcClientConsoleAccess {
+	// =============================================
 
 		ConsoleOut& _console;
 
@@ -49,6 +51,20 @@ namespace powermon {
 		~AvahiSvcClientConsoleAccess(void) {}
 
 		void sendConsoleOut(const char *msg);
+	};
+
+	// =============================================
+	class AvahiSvcClientWifiAccess {
+	// =============================================
+
+		WifiQueue& _wifiQueue;
+
+	public:
+		AvahiSvcClientWifiAccess(WifiQueue &wifiQueue);
+		~AvahiSvcClientWifiAccess(void) {}
+
+		void sendAvahiSvcUp(void);
+		void sendAvahiSvcDown(void);
 	};
 
 	typedef struct AvahiSvcClientConfig_s
@@ -68,9 +84,10 @@ namespace powermon {
 		uint16_t port;
 
 		/*
-		 * Avahi function access to the console
+		 * Avahi function access to the console and the WiFi Queue
 		 */
 		AvahiSvcClientConsoleAccess *consoleAccess;
+		AvahiSvcClientWifiAccess *wifiAccess;
 
 	} avahiSvcClientConfig_t;
 
@@ -88,6 +105,7 @@ namespace powermon {
 		std::condition_variable _svcClientCondVar;
 
 		ConsoleOut& _console;
+		WifiQueue& _wifiQueue;
 
 		PwrmonSvcClient(const PwrmonSvcClient&) = delete;
 		PwrmonSvcClient& operator=(const PwrmonSvcClient&) = delete;
@@ -97,7 +115,7 @@ namespace powermon {
 
 	public:
 
-		PwrmonSvcClient(ConsoleOut& console);
+		PwrmonSvcClient(ConsoleOut& console, WifiQueue& wifiQueue);
 		~PwrmonSvcClient(void);
 
 		void exitPwrmonSvcClient(void);

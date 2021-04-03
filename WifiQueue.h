@@ -17,22 +17,23 @@
 // ==============================================================
 #pragma once
 
-#include "ConsoleOut.h"
-#include "WifiSocket.h"
-
-#include <ThreadMsg.h>
-
+#include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <string>
+#include <thread>
 
 namespace powermon {
 
+	class ConsoleOut;
+	class WifiSocket;
+	class ThreadMsg;
+
 	class WifiQueue
 	{
-
 		ConsoleOut& _console;
-
+		bool _serviceAvailable;
 		std::unique_ptr<WifiSocket> _socket;
 
 		std::thread _wifiQueueThread;

@@ -16,6 +16,9 @@
 // is obtained David Hammond.
 // ==============================================================
 
+#include "ConsoleOut.h"
+#include "ThreadMsg.h"
+#include "WifiSocket.h"
 #include "WifiQueue.h"
 
 #include <chrono>         // std::chrono::seconds
@@ -51,11 +54,34 @@ namespace powermon {
 
 	        switch (msg->getMsgId())
 	        {
+				case ThreadMsg::MsgId_AvahiSvcUp:
+				{
+					std::string txtMsg("WiFi: PowerMon Server Available");
+					_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, txtMsg));
+
+					if (_serviceAvailable == false) {
+						_socket = make_unique<WifiSocket>(_console);
+						_serviceAvailable = true;
+					}
+					break;
+				}
+
+				case ThreadMsg::MsgId_AvahiSvcDown:
+				{
+					std::string txtMsg("WiFi: PowerMon Server Not Available");
+					_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, txtMsg));
+					_serviceAvailable = false;
+					break;
+				}
+
 				case ThreadMsg::MsgId_MsgNodeData:
 				{
-					std::string txtMsg("Sending PowerMon data packet");
-		 			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, txtMsg));
-					_socket->sendPacket(msg->getMsg());
+					if (_serviceAvailable == true) {
+						_socket->sendPacket(msg->getMsg());
+					} else {
+						std::string txtMsg("WiFi: Not sending PowerMon data packet: service unavailable");
+						_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, txtMsg));
+					}
 					break;
 				}
 
@@ -80,9 +106,9 @@ namespace powermon {
 
 
 	WifiQueue::WifiQueue(ConsoleOut& console) :
-		_console(console)
+		_console(console),
+		_serviceAvailable(false)
 	{
-		_socket = make_unique<WifiSocket>(console);
 		_wifiQueueThread = std::thread(&WifiQueue::_threadProcess, this);
 	}
 
