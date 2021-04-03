@@ -16,109 +16,90 @@
 // is obtained David Hammond.
 // ==============================================================
 
-#include "ConsoleOut.h"
+#include <ConsoleOut.h>
+#include <ThreadMsg.h>
 
-#include <chrono>         // std::chrono::seconds
-#include <cstring>
 #include <iostream>
-#include <thread>         // std::this_thread::sleep_for
 
 using namespace std;
 
 namespace powermon {
 
-	bool consoleOutThreadIsActive;
-
-	void consoleOutThreadProc(void)
+	void ConsoleOut::_threadProcess(void)
 	{
-		// Initialize the singleton
-		ConsoleOut &console = ConsoleOut::getConsoleOut();
+	    while (true)
+	    {
+	        std::shared_ptr<ThreadMsg> msg;
 
-		console.consoleOutMutex->lock();
-		consoleOutThreadIsActive = true;
-		console.consoleOutMutex->unlock();
+	        {
+	            // Wait for a message to be added to the queue
+	            std::unique_lock<std::mutex> lk(_consoleOutMutex);
+	            while (_screenLine.empty())
+	            	_consoleOutCondVar.wait(lk);
 
-		do {
-			while (!console.isConsoleQueueEmpty()) {
-				console.printToConsole();
+	            if (_screenLine.empty())
+	                continue;
+
+	            msg = _screenLine.front();
+	            _screenLine.pop();
+	        }
+
+	        switch (msg->getMsgId())
+	        {
+				case ThreadMsg::MsgId_MsgConsoleStr:
+				{
+					cout << msg->getMsg() << endl;
+					break;
+				}
+
+				case ThreadMsg::MsgId_MsgExitThread:
+				{
+					do {
+			            msg = _screenLine.front();
+			            _screenLine.pop();
+			            if (msg->getMsgId() == ThreadMsg::MsgId_MsgConsoleStr) {
+			            	cout << msg->getMsg() << endl;
+			            }
+					} while (!_screenLine.empty());
+
+					cout << "Leaving the Powermon console thread" << endl;
+					return;
+				}
+
+				default:
+				{
+					cout << "Received an unhandled message: " << msg->getMsgId() << endl;
+					break;
+				}
 			}
-
-			this_thread::sleep_for(chrono::seconds(1));
-
-		} while (console.consoleIsActive());
-
-		cout << "Leaving the Console Out ThreadProc" << endl;
+	    }
 	}
 
-	ConsoleOut& ConsoleOut::getConsoleOut(void)
+	ConsoleOut::ConsoleOut(void) :
+		_consoleOutThread(make_unique<std::thread>(&ConsoleOut::_threadProcess, this))
 	{
-		static ConsoleOut consoleOut;
-
-		return (consoleOut);
+		std::string msg("Starting the Powermon console thread");
+		queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 	}
 
-	ConsoleOut::ConsoleOut()
+	void ConsoleOut::queueOutput(const std::shared_ptr<ThreadMsg> message)
 	{
-		consoleOutThreadIsActive = false;
-		consoleOutMutex = new std::mutex;
+	    // Add user data msg to queue and notify worker thread
+	    std::unique_lock<std::mutex> lk(_consoleOutMutex);
+	    _screenLine.push(message);
+	    _consoleOutCondVar.notify_one();
 	}
 
-	void ConsoleOut::queueOutput(const string& lineOfText)
+	void ConsoleOut::exitConsoleOut(void)
 	{
-		char *text = new char[lineOfText.length() + 1];
-		strncpy(text, lineOfText.c_str(), lineOfText.length() + 1);
-
-		consoleOutMutex->lock();
-		screenLine.push(text);
-		consoleOutMutex->unlock();
-	}
-
-	bool ConsoleOut::consoleIsActive(void)
-	{
-		consoleOutMutex->lock();
-		bool threadIsActive = consoleOutThreadIsActive;
-		consoleOutMutex->unlock();
-		return (threadIsActive);
-	}
-
-	void ConsoleOut::releaseConsoleOut(void)
-	{
-		consoleOutMutex->lock();
-		consoleOutThreadIsActive = false;
-		consoleOutMutex->unlock();
-	}
-
-	bool ConsoleOut::isConsoleQueueEmpty(void)
-	{
-		consoleOutMutex->lock();
-		bool consoleIsEmpty = screenLine.empty();
-		consoleOutMutex->unlock();
-		return consoleIsEmpty;
-	}
-
-	void ConsoleOut::printToConsole(void)
-	{
-		consoleOutMutex->lock();
-		char *lineOfText = screenLine.front();
-		screenLine.pop();
-		consoleOutMutex->unlock();
-
-		cout << lineOfText;
-		free(lineOfText);
+		std::string msg("Request to exit the Powermon console thread");
+		queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgExitThread, msg));
 	}
 
 	ConsoleOut::~ConsoleOut()
 	{
-		while (!screenLine.empty())
-		{
-			char *lineOfText = screenLine.front();
-			screenLine.pop();
-
-			cout << lineOfText << endl;
-			free(lineOfText);
-		}
-
-		free(consoleOutMutex);
+		_consoleOutThread->join();
+    	cout << "Joined the Powermon console thread." << endl;
 	}
 
 } // namespace powermon

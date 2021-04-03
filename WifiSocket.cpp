@@ -17,6 +17,7 @@
 // ==============================================================
 
 #include "WifiSocket.h"
+#include "ThreadMsg.h"
 
 #include <chrono>         // std::chrono::seconds
 #include <errno.h>
@@ -28,6 +29,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 using namespace std;
 
@@ -35,32 +37,32 @@ namespace powermon {
 
 	static bool socketIsActive;
 
+#define PWRMON_PORT 52955u
 
-	WifiSocket::SockServer::SockServer(void) :
-		sockfd(-1),
-		serverIsActive(false)
+	WifiSocket::SockServer::SockServer(ConsoleOut& console) :
+		_sockfd(-1),
+		_console(console)
 	{
-		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-		if (sockfd == -1) {
-			cout << "Failed to server create socket" << endl;
+		_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (_sockfd == -1) {
+			std::string msg("Failed to create server socket");
+			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 		} else {
-#if 1
+
 			struct sockaddr_in addr;
 			addr.sin_family = AF_INET;
-			addr.sin_port   = htons(52955u);
+			addr.sin_port   = htons(PWRMON_PORT);
 			addr.sin_addr.s_addr = INADDR_ANY;
 
-			int status = bind(sockfd, (struct sockaddr *)&addr, sizeof(struct sockaddr));
+			int status = bind(_sockfd, (struct sockaddr *)&addr, sizeof(struct sockaddr));
 			if (status == -1) {
-				cout << "Failed to bind to server socket" << endl;
+				std::string msg("Failed to bind to server socket");
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+				close(_sockfd);
 			} else {
-				serverIsActive = true;
-				cout << "WiFi server socket is active" << endl;
+				std::string msg("WiFi server socket is active");
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 			}
-#else
-			serverIsActive = true;
-			cout << "WiFi server socket is active" << endl;
-#endif
 		}
 	}
 
@@ -68,52 +70,58 @@ namespace powermon {
 	{
 		ssize_t bytesRcvd;
 
-		if (serverIsActive) {
+		if (_sockfd != NO_SOCKET) {
 
-#if 0
-			AvahiIPv4Address svcAddr = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcAddr();
-#endif
-			uint16_t port = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcPort();
+			uint16_t port = getPwrmonSvcPort();
 
 			struct sockaddr_in src_addr;
 			socklen_t addrlen = sizeof(struct sockaddr_in);
 
 			int flags = (MSG_WAITALL);
-			bytesRcvd = recvfrom(sockfd, data, dataLen, flags,
+			bytesRcvd = recvfrom(_sockfd, data, dataLen, flags,
 					(struct sockaddr *)&src_addr, &addrlen);
 
 			if (bytesRcvd == -1) {
 				int errnum = errno;
 
-				cout << "Socket receive failed: " << strerror(errnum) << endl;
+				std::ostringstream oss;
+				oss << "Socket receive failed: " << strerror(errnum);
+				std::string msg = oss.str();
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 			} else {
-				cout << "Received a packet" << endl;
-				cout << "Avahi port: " << port << endl;
-				cout << "Received port" << src_addr.sin_port << endl;
+				std::string msg(nullptr);
+				msg = "Received a packet";
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+
+				std::ostringstream oss;
+				oss << "Avahi port: " << port;
+				msg = oss.str();
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+
+				oss.str("");
+				oss << "Received port" << src_addr.sin_port;
+				msg = oss.str();
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 			}
 
 		} else {
-			cout << "Server socket is not active" << endl;
+			std::string msg("Server socket is not active");
+			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 			bytesRcvd = 0;
 		}
 
 		return (bytesRcvd);
 	}
 
-	WifiSocket::SockServer& WifiSocket::SockServer::getSockServer(void)
+	WifiSocket::SockClient::SockClient(ConsoleOut& console) :
+		_sockfd(-1),
+		_console(console)
 	{
-		static WifiSocket::SockServer sockServer;
-
-		return (sockServer);
-	}
-
-	WifiSocket::SockClient::SockClient(void) :
-		sockfd(-1),
-		clientIsActive(false)
-	{
-		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-		if (sockfd == -1) {
-			cout << "Failed to create client socket" << endl;
+		_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (_sockfd == -1) {
+			std::string msg("Failed to create client socket");
+			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
+			close(_sockfd);
 		} else {
 #if 0
 			AvahiIPv4Address svcAddr = PwrmonSvcClient::getPwrmonSvcClient().getPwrmonSvcAddr();
@@ -132,8 +140,8 @@ namespace powermon {
 				cout << "WiFi client socket is active" << endl;
 			}
 #else
-			clientIsActive = true;
-			cout << "WiFi client socket is active" << endl;
+			std::string msg("WiFi client socket is active");
+			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 #endif
 		}
 	}
@@ -142,52 +150,38 @@ namespace powermon {
 	{
 		ssize_t bytesSent;
 
-		if (clientIsActive) {
+		if (_sockfd != -1) {
 
 			int flags = (MSG_DONTROUTE | MSG_DONTWAIT);
-			ssize_t bytesSent = sendto(sockfd, data, dataLen, flags, NULL, 0);
+			bytesSent = sendto(_sockfd, data, dataLen, flags, NULL, 0);
 
 			if (bytesSent == -1) {
 				int errnum = errno;
 
-				cout << "Socket send failed: " << strerror(errnum) << endl;
+				std::ostringstream oss;
+				oss << "Socket send failed: " << strerror(errnum);
+				std::string msg = oss.str();
+				_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 			}
 
 		} else {
-			cout << "Client socket is not active" << endl;
+			std::string msg("Client socket is not active");
+			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 			bytesSent = 0;
 		}
 
 		return (bytesSent);
 	}
 
-	WifiSocket::SockClient& WifiSocket::SockClient::getSockClient(void)
+	WifiSocket::WifiSocket(ConsoleOut& console) :
+		_console(console),
+		_socketIsActive(false),
+		_server(SockServer(console)),
+		_client(SockClient(console))
 	{
-		static WifiSocket::SockClient sockClient;
-
-		return (sockClient);
-	}
-
-	WifiSocket& WifiSocket::getWifiSocket(void)
-	{
-		static WifiSocket WifiSocket;
-
-		return (WifiSocket);
-	}
-
-
-	WifiSocket::WifiSocket() :
-		server(WifiSocket::SockServer::getSockServer()),
-		client(WifiSocket::SockClient::getSockClient()),
-		console(ConsoleOut::getConsoleOut())
-	{
-		wifiSocketMutex = new std::mutex;
-
-		if ((server.isSockServerActive() == true) &&
-			(client.isSockClientActive() == true)) {
-			socketIsActive = true;
-		} else {
-			socketIsActive = false;
+		if ((_server.isSockServerActive() == true) &&
+			(_client.isSockClientActive() == true)) {
+			_socketIsActive = true;
 		}
 	}
 
@@ -195,39 +189,28 @@ namespace powermon {
 	{
 		if (isWifiSocketActive())
 		{
-			ostringstream string1;
-			string1 << "Request to send a packet" << endl;
-			string text = string1.str();
-			console.queueOutput(text);
-			string1.str("");
+			std::string msg(packet);
+			_console.queueOutput(make_shared<ThreadMsg>(ThreadMsg::MsgId_MsgConsoleStr, msg));
 		}
 	}
 
 	bool WifiSocket::isWifiSocketActive(void)
 	{
-		wifiSocketMutex->lock();
-		bool sockIsActive = socketIsActive;
-		wifiSocketMutex->unlock();
-		return sockIsActive;
+		return socketIsActive;
 	}
 
 	void WifiSocket::setWifiSocketIsNotActive(void)
 	{
-		wifiSocketMutex->lock();
 		socketIsActive = false;
-		wifiSocketMutex->unlock();
 	}
 
 	void WifiSocket::setWifiSocketIsActive(void)
 	{
-		wifiSocketMutex->lock();
 		socketIsActive = true;
-		wifiSocketMutex->unlock();
 	}
 
 	WifiSocket::~WifiSocket()
 	{
-		free(wifiSocketMutex);
 	}
 
 } // namespace powermon

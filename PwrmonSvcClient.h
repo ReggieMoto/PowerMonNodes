@@ -22,77 +22,86 @@
 #include <avahi-common/simple-watch.h>
 #include <avahi-common/malloc.h>
 #include <avahi-common/error.h>
+
+#include <ThreadMsg.h>
+#include <ConsoleOut.h>
+
+#include <condition_variable>
+#include <memory>
 #include <mutex>
+#include <queue>
+#include <thread>
+#include <vector>
+
 
 namespace powermon {
 
-	void pwrmonSvcClientThreadProc(void);
+	void avahiSvcClientProcess(void);
+	AvahiIPv4Address getPwrmonSvcAddr(void);
+	uint16_t getPwrmonSvcPort(void);
+
+	class AvahiSvcClientConsoleAccess {
+
+		ConsoleOut& _console;
+
+	public:
+		AvahiSvcClientConsoleAccess(ConsoleOut& console);
+		~AvahiSvcClientConsoleAccess(void) {}
+
+		void sendConsoleOut(const char *msg);
+	};
+
+	typedef struct AvahiSvcClientConfig_s
+	{
+		const char *svcName = "PowerMon";
+		const char *svcType = "_powermon._udp";
+
+		AvahiSimplePoll *simple_poll;
+		AvahiClient *client;
+		AvahiServiceBrowser *serviceBrowser;
+
+		AvahiIfIndex interface;
+		AvahiProtocol protocol;
+		char *domain;
+		char *host_name;
+		AvahiIPv4Address address;
+		uint16_t port;
+
+		/*
+		 * Avahi function access to the console
+		 */
+		AvahiSvcClientConsoleAccess *consoleAccess;
+
+	} avahiSvcClientConfig_t;
+
+
+	// =============================================
+	//
+	// AvahiSvcClient
+	// =============================================
 
 	class PwrmonSvcClient
 	{
-		private:
+		std::vector<std::thread> _threads;
+		std::queue<std::shared_ptr<ThreadMsg>> _svcClientQueue;
+		std::mutex _svcClientMutex;
+		std::condition_variable _svcClientCondVar;
 
-			const char *svcName = "PowerMon";
-			const char *svcType = "_powermon._udp";
+		ConsoleOut& _console;
 
-			AvahiSimplePoll *simple_poll;
-		    AvahiClient *client;
-		    AvahiServiceBrowser *serviceBrowser;
+		PwrmonSvcClient(const PwrmonSvcClient&) = delete;
+		PwrmonSvcClient& operator=(const PwrmonSvcClient&) = delete;
 
-		    AvahiIfIndex interface;
-		    AvahiProtocol protocol;
-		    char *domain;
-		    char *host_name;
-		    AvahiIPv4Address address;
-		    uint16_t port;
+		// Entry point for the PowerMon Service Client thread
+		void _threadProcess(void);
 
-			std::mutex *svcClientMutex;
+	public:
 
-			PwrmonSvcClient(void);
+		PwrmonSvcClient(ConsoleOut& console);
+		~PwrmonSvcClient(void);
 
-		public:
-
-			~PwrmonSvcClient(void) { if (svcClientMutex != NULL) free(svcClientMutex); }
-
-			static PwrmonSvcClient& getPwrmonSvcClient(void);
-
-			bool pwrmonSvcClientIsActive(void);
-			void releasePwrmonSvcClient(void);
-			inline AvahiIPv4Address getPwrmonSvcAddr(void) { return address; }
-			inline uint16_t getPwrmonSvcPort(void) { return port; }
-
-			static void clientCallback(
-					AvahiClient *client,
-					AvahiClientState state,
-					void * userdata);
-
-			static void resolveCallback(
-				    AvahiServiceResolver *r,
-				    AvahiIfIndex interface,
-				    AvahiProtocol protocol,
-				    AvahiResolverEvent event,
-				    const char *name,
-				    const char *type,
-				    const char *domain,
-				    const char *host_name,
-				    const AvahiAddress *address,
-				    uint16_t port,
-				    AvahiStringList *txt,
-				    AvahiLookupResultFlags flags,
-				    void* userdata);
-
-			static void browseCallback(
-				    AvahiServiceBrowser *b,
-				    AvahiIfIndex interface,
-				    AvahiProtocol protocol,
-				    AvahiBrowserEvent event,
-				    const char *name,
-				    const char *type,
-				    const char *domain,
-				    AvahiLookupResultFlags flags,
-				    void* userdata);
-
-			friend void pwrmonSvcClientThreadProc(void);
+		void exitPwrmonSvcClient(void);
+		void queueOutput(const std::shared_ptr<ThreadMsg> message);
 	};
 }
 
